@@ -95,7 +95,10 @@ class RingBuffer:
     def _create_and_init_buffer(self) -> None:
         """Allocate backing file and write clean 64-byte header."""
         os.makedirs(os.path.dirname(self.filepath) or ".", exist_ok=True)
-        self._file_handle = open(self.filepath, "w+b")
+        if os.path.exists(self.filepath):
+            self._file_handle = open(self.filepath, "r+b")
+        else:
+            self._file_handle = open(self.filepath, "w+b")
         self._file_handle.seek(self.total_size - 1)
         self._file_handle.write(b"\x00")
         self._file_handle.flush()

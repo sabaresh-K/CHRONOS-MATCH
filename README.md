@@ -201,7 +201,20 @@ Sample Live Terminal UI output:
      • p99:      14.20 μs          • p99.9:           22.50 μs
      • Max:      41.10 μs          • Avg:              5.22 μs
 ══════════════════════════════════════════════════════════════════════════════════
+### 4. Launch the Real-Time Web Trading Terminal (Localhost)
+Launch the FastAPI & WebSocket bridge server to open the interactive HFT web terminal:
+```bash
+python services/web_server.py
 ```
+Then open your browser to:
+**[http://localhost:8000](http://localhost:8000)**
+
+**Web Terminal Features:**
+- **Live L2 Order Book Depth Ladder:** Real-time animated depth bars for Asks and Bids, spread display, and mid-price.
+- **Time & Sales (Trade Tape):** High-speed streaming tape of executed fills with nanosecond timestamps, fill price, quantity, and order IDs.
+- **Interactive Depth & Latency Charts:** Canvas-rendered cumulative depth curves and latency percentile histograms.
+- **IPC Market Simulator Firehose:** One-click burst triggers (`+10k`, `+50k`, `+100k`, `+500k`), rate slider, and continuous stream toggle.
+- **Interactive Order Ticket:** Real-time Buy/Sell limit order entry with immediate fill execution feedback.
 
 ---
 
