@@ -1,75 +1,92 @@
 /**
- * ChronosMatch Real-Time HFT Web Terminal Controller
- * WebSocket streaming, DOM rendering, canvas chart generation, and order execution.
+ * ChronosMatch Institutional HFT Terminal Controller
+ * Professional client-side state machine, WebSocket data stream, DOM ladder diffing,
+ * and high-DPI canvas charting.
  */
 
-// Global Application State
+// Global State
 let ws = null;
 let currentSide = "BUY";
+let currentType = "LIMIT";
+let activeTab = "depth";
 let simActive = false;
-let activeChartTab = "depth";
 let lastTelemetry = null;
 
 // DOM Elements
-const wsStatus = document.getElementById("wsStatus");
-const wsStatusText = document.getElementById("wsStatusText");
+const connectionStatus = document.getElementById("connectionStatus");
+const connectionText = document.getElementById("connectionText");
 const backendText = document.getElementById("backendText");
 const uptimeVal = document.getElementById("uptimeVal");
-const ringOccupancy = document.getElementById("ringOccupancy");
-const ringFill = document.getElementById("ringFill");
 
-// Hero Stats
+// Header Ticker
+const tickerMid = document.getElementById("tickerMid");
+const tickerSpread = document.getElementById("tickerSpread");
+const tickerVol = document.getElementById("tickerVol");
+
+// Toolbar
+const rateSlider = document.getElementById("rateSlider");
+const rateDisplay = document.getElementById("rateDisplay");
+const btnStreamToggle = document.getElementById("btnStreamToggle");
 const statP50 = document.getElementById("statP50");
 const statP99 = document.getElementById("statP99");
 const statThroughput = document.getElementById("statThroughput");
-const statDropped = document.getElementById("statDropped");
-const statOrders = document.getElementById("statOrders");
-const statTradesCount = document.getElementById("statTradesCount");
-const statVolume = document.getElementById("statVolume");
 
-// LOB Elements
+// Order Book (DOM)
 const asksContainer = document.getElementById("asksContainer");
 const bidsContainer = document.getElementById("bidsContainer");
 const spreadVal = document.getElementById("spreadVal");
 const spreadTicks = document.getElementById("spreadTicks");
 const midVal = document.getElementById("midVal");
 
-// Tape Elements
-const tapeBody = document.getElementById("tapeBody");
-const tapeCount = document.getElementById("tapeCount");
+// Tabs & Panes
+const tabDepth = document.getElementById("tabDepth");
+const tabTape = document.getElementById("tabTape");
+const tabLatency = document.getElementById("tabLatency");
+const paneDepth = document.getElementById("paneDepth");
+const paneTape = document.getElementById("paneTape");
+const paneLatency = document.getElementById("paneLatency");
+const chipThroughput = document.getElementById("chipThroughput");
+const chipTrades = document.getElementById("chipTrades");
 
-// Simulator Elements
-const rateSlider = document.getElementById("rateSlider");
-const rateDisplay = document.getElementById("rateDisplay");
-const btnStreamToggle = document.getElementById("btnStreamToggle");
-
-// Ticket Elements
-const btnSideBuy = document.getElementById("btnSideBuy");
-const btnSideSell = document.getElementById("btnSideSell");
-const orderPrice = document.getElementById("orderPrice");
-const orderQty = document.getElementById("orderQty");
-const btnSubmitOrder = document.getElementById("btnSubmitOrder");
-const orderFeedback = document.getElementById("orderFeedback");
-
-// Latency Grid Elements
-const latMin = document.getElementById("latMin");
-const latP50 = document.getElementById("latP50");
-const latP90 = document.getElementById("latP90");
-const latP95 = document.getElementById("latP95");
-const latP99 = document.getElementById("latP99");
-const latP999 = document.getElementById("latP999");
-const latMax = document.getElementById("latMax");
-const latAvg = document.getElementById("latAvg");
-
-// Canvas
+// Canvases
 const depthCanvas = document.getElementById("depthCanvas");
 const latencyCanvas = document.getElementById("latencyCanvas");
 const depthCtx = depthCanvas ? depthCanvas.getContext("2d") : null;
 const latencyCtx = latencyCanvas ? latencyCanvas.getContext("2d") : null;
 
+// Tape
+const tapeBody = document.getElementById("tapeBody");
+
+// Ticket
+const btnSideBuy = document.getElementById("btnSideBuy");
+const btnSideSell = document.getElementById("btnSideSell");
+const typeLimit = document.getElementById("typeLimit");
+const typeMarket = document.getElementById("typeMarket");
+const priceFieldWrapper = document.getElementById("priceFieldWrapper");
+const orderPrice = document.getElementById("orderPrice");
+const orderQty = document.getElementById("orderQty");
+const orderValueEstimate = document.getElementById("orderValueEstimate");
+const btnSubmitOrder = document.getElementById("btnSubmitOrder");
+const ticketStatus = document.getElementById("ticketStatus");
+
+// Latency Grid
+const latP50 = document.getElementById("latP50");
+const latP90 = document.getElementById("latP90");
+const latP95 = document.getElementById("latP95");
+const latP99 = document.getElementById("latP99");
+const latP999 = document.getElementById("latP999");
+const latMinMax = document.getElementById("latMinMax");
+const latAvg = document.getElementById("latAvg");
+
+// Footer
+const footerOccupancy = document.getElementById("footerOccupancy");
+const footerOrdersCount = document.getElementById("footerOrdersCount");
+const footerTradesCount = document.getElementById("footerTradesCount");
+const footerDroppedCount = document.getElementById("footerDroppedCount");
+
 
 // ==========================================================================
-// 1. WEBSOCKET CLIENT & AUTO-RECONNECT
+// 1. WEBSOCKET REAL-TIME DATA STREAM
 // ==========================================================================
 
 function connectWebSocket() {
@@ -79,8 +96,8 @@ function connectWebSocket() {
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        wsStatus.className = "status-pill connected";
-        wsStatusText.textContent = "CONNECTED";
+        connectionStatus.className = "connection-pill";
+        connectionText.textContent = "CONNECTED";
     };
 
     ws.onmessage = (event) => {
@@ -90,26 +107,26 @@ function connectWebSocket() {
                 handleTelemetry(data);
             }
         } catch (err) {
-            console.error("Failed to parse WebSocket packet:", err);
+            console.error("Telemetry parse error:", err);
         }
     };
 
     ws.onclose = () => {
-        wsStatus.className = "status-pill disconnected";
-        wsStatusText.textContent = "RECONNECTING";
+        connectionStatus.className = "connection-pill disconnected";
+        connectionText.textContent = "RECONNECTING";
         setTimeout(connectWebSocket, 1500);
     };
 
-    ws.onerror = (err) => {
-        wsStatus.className = "status-pill disconnected";
-        wsStatusText.textContent = "DISCONNECTED";
+    ws.onerror = () => {
+        connectionStatus.className = "connection-pill disconnected";
+        connectionText.textContent = "DISCONNECTED";
         ws.close();
     };
 }
 
 
 // ==========================================================================
-// 2. TELEMETRY HANDLER & UI DISPATCHER
+// 2. TELEMETRY INGESTION & DISPATCH
 // ==========================================================================
 
 function handleTelemetry(data) {
@@ -119,140 +136,152 @@ function handleTelemetry(data) {
     if (data.backend) backendText.textContent = data.backend;
     if (data.uptime !== undefined) uptimeVal.textContent = `${data.uptime.toFixed(1)}s`;
 
-    // Ring Buffer
-    if (data.ring_buffer) {
-        const rb = data.ring_buffer;
-        ringOccupancy.textContent = `${rb.occupancy.toLocaleString()} / ${rb.capacity.toLocaleString()} (${rb.pct.toFixed(1)}%)`;
-        ringFill.style.width = `${Math.min(100, rb.pct)}%`;
-        statDropped.textContent = `${rb.dropped.toLocaleString()} dropped packets`;
-    }
+    // Mid & Spread
+    const midPrice = data.mid_price !== null && data.mid_price !== undefined ? data.mid_price : 150.0;
+    const midStr = `$${midPrice.toFixed(2)}`;
+    tickerMid.textContent = midStr;
+    midVal.textContent = midStr;
 
-    // Hero Stats
-    if (data.latency) {
-        statP50.innerHTML = `${data.latency.p50_us.toFixed(2)} <span class="unit">μs</span>`;
-        statP99.innerHTML = `${data.latency.p99_us.toFixed(2)} <span class="unit">μs</span>`;
-
-        latMin.textContent = `${data.latency.min_us.toFixed(2)} μs`;
-        latP50.textContent = `${data.latency.p50_us.toFixed(2)} μs`;
-        latP90.textContent = `${data.latency.p90_us.toFixed(2)} μs`;
-        latP95.textContent = `${data.latency.p95_us.toFixed(2)} μs`;
-        latP99.textContent = `${data.latency.p99_us.toFixed(2)} μs`;
-        latP999.textContent = `${(data.latency.p99_9_us || 0).toFixed(2)} μs`;
-        latMax.textContent = `${data.latency.max_us.toFixed(2)} μs`;
-        latAvg.textContent = `${data.latency.avg_us.toFixed(2)} μs`;
-    }
-
-    if (data.throughput !== undefined) {
-        statThroughput.innerHTML = `${Math.round(data.throughput).toLocaleString()} <span class="unit">ord/s</span>`;
-    }
-
-    if (data.orders_processed !== undefined) {
-        statOrders.textContent = data.orders_processed.toLocaleString();
-    }
-
-    if (data.trades_executed !== undefined) {
-        statTradesCount.textContent = `${data.trades_executed.toLocaleString()} trades executed`;
+    if (data.spread !== null && data.spread !== undefined) {
+        const spStr = `$${data.spread.toFixed(2)}`;
+        tickerSpread.innerHTML = `${spStr} <span class="sub-ticks">(${data.spread_ticks} ticks)</span>`;
+        spreadVal.textContent = spStr;
+        spreadTicks.textContent = `(${data.spread_ticks} ticks)`;
+    } else {
+        tickerSpread.innerHTML = `— <span class="sub-ticks">(—)</span>`;
+        spreadVal.textContent = "—";
+        spreadTicks.textContent = "(—)";
     }
 
     if (data.total_volume !== undefined) {
-        statVolume.innerHTML = `${data.total_volume.toLocaleString()} <span class="unit">shares</span>`;
+        tickerVol.textContent = `${data.total_volume.toLocaleString()} shs`;
     }
 
-    // Spread & Mid
-    if (data.spread !== null && data.spread !== undefined) {
-        spreadVal.textContent = `$${data.spread.toFixed(2)}`;
-        spreadTicks.textContent = `(${data.spread_ticks} ticks)`;
-    } else {
-        spreadVal.textContent = "—";
-        spreadTicks.textContent = "(— ticks)";
+    // Quick Stats Toolbar
+    if (data.latency) {
+        const l = data.latency;
+        statP50.textContent = `${l.p50_us.toFixed(2)} μs`;
+        statP99.textContent = `${l.p99_us.toFixed(2)} μs`;
+
+        latP50.textContent = `${l.p50_us.toFixed(2)} μs`;
+        latP90.textContent = `${l.p90_us.toFixed(2)} μs`;
+        latP95.textContent = `${l.p95_us.toFixed(2)} μs`;
+        latP99.textContent = `${l.p99_us.toFixed(2)} μs`;
+        latP999.textContent = `${(l.p99_9_us || 0).toFixed(2)} μs`;
+        latMinMax.textContent = `${l.min_us.toFixed(2)} / ${l.max_us.toFixed(2)} μs`;
+        latAvg.textContent = `${l.avg_us.toFixed(2)} μs`;
     }
 
-    if (data.mid_price !== null && data.mid_price !== undefined) {
-        midVal.textContent = `$${data.mid_price.toFixed(2)}`;
-        // Update ticket default price if user hasn't touched it recently
-        if (!document.activeElement || document.activeElement !== orderPrice) {
-            orderPrice.placeholder = data.mid_price.toFixed(2);
-        }
+    if (data.throughput !== undefined) {
+        const rateFormatted = `${Math.round(data.throughput).toLocaleString()} ord/s`;
+        statThroughput.textContent = rateFormatted;
+        chipThroughput.textContent = rateFormatted;
     }
 
-    // Render Depth Ladder
+    if (data.trades_executed !== undefined) {
+        chipTrades.textContent = `${data.trades_executed.toLocaleString()} fills`;
+    }
+
+    // Render Order Book
     renderOrderBook(data.bids || [], data.asks || []);
 
-    // Render Trades Tape
-    renderTrades(data.recent_trades || []);
-
-    // Render Canvas
-    if (activeChartTab === "depth") {
+    // Render Active Tab Content
+    if (activeTab === "depth") {
         drawDepthChart(data.bids || [], data.asks || []);
-    } else {
+    } else if (activeTab === "tape") {
+        renderTradeTape(data.recent_trades || []);
+    } else if (activeTab === "latency") {
         drawLatencyHistogram(data.latency);
     }
 
-    // Simulator UI sync
+    // Simulator State Sync
     if (data.simulator) {
         simActive = data.simulator.active;
         if (simActive) {
-            btnStreamToggle.textContent = "⏹ Stop Continuous Stream";
-            btnStreamToggle.className = "btn btn-stream active";
+            btnStreamToggle.className = "btn btn-action active";
+            btnStreamToggle.innerHTML = `
+                <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="6" y="4" width="4" height="16"/>
+                    <rect x="14" y="4" width="4" height="16"/>
+                </svg>
+                <span>Pause Stream</span>
+            `;
         } else {
-            btnStreamToggle.textContent = "▶ Start Continuous Stream";
-            btnStreamToggle.className = "btn btn-stream";
+            btnStreamToggle.className = "btn btn-action";
+            btnStreamToggle.innerHTML = `
+                <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                <span>Start Stream</span>
+            `;
         }
+    }
+
+    // Footer Metrics
+    if (data.ring_buffer) {
+        const rb = data.ring_buffer;
+        footerOccupancy.textContent = `Occupancy: ${rb.occupancy.toLocaleString()} (${rb.pct.toFixed(1)}%)`;
+        footerDroppedCount.textContent = `Dropped: ${rb.dropped.toLocaleString()}`;
+    }
+    if (data.orders_processed !== undefined) {
+        footerOrdersCount.textContent = `Processed: ${data.orders_processed.toLocaleString()} orders`;
+    }
+    if (data.trades_executed !== undefined) {
+        footerTradesCount.textContent = `Executed: ${data.trades_executed.toLocaleString()} trades`;
     }
 }
 
 
 // ==========================================================================
-// 3. LEVEL-2 ORDER BOOK DEPTH LADDER (DOM)
+// 3. LEVEL-2 DEPTH LADDER (DOM)
 // ==========================================================================
 
 function renderOrderBook(bids, asks) {
-    // 1. Calculate max cumulative depth for proportional width bars
-    let maxCumulative = 1;
-    let cumBid = 0;
-    const bidLevels = bids.map(b => {
-        cumBid += b.qty;
-        return { price: b.price, qty: b.qty, cum: cumBid };
+    let maxVolume = 1;
+    let bSum = 0;
+    const bidRows = bids.map(b => {
+        bSum += b.qty;
+        return { price: b.price, qty: b.qty, total: bSum };
     });
 
-    let cumAsk = 0;
-    const askLevels = asks.map(a => {
-        cumAsk += a.qty;
-        return { price: a.price, qty: a.qty, cum: cumAsk };
+    let aSum = 0;
+    const askRows = asks.map(a => {
+        aSum += a.qty;
+        return { price: a.price, qty: a.qty, total: aSum };
     });
 
-    maxCumulative = Math.max(cumBid, cumAsk, 1);
+    maxVolume = Math.max(bSum, aSum, 1);
 
-    // 2. Render Asks (Reverse so highest ask is at top, best ask is right above spread banner)
-    const reversedAsks = [...askLevels].reverse();
+    // Asks Ladder: Inverted so lowest ask (best ask) is at bottom
+    const reversedAsks = [...askRows].reverse();
     if (reversedAsks.length === 0) {
-        asksContainer.innerHTML = `<div class="empty-hint">Ask book empty</div>`;
+        asksContainer.innerHTML = `<div class="ladder-placeholder">No asks in book</div>`;
     } else {
-        asksContainer.innerHTML = reversedAsks.map(level => {
-            const pct = Math.min(100, (level.cum / maxCumulative) * 100);
+        asksContainer.innerHTML = reversedAsks.map(r => {
+            const widthPct = Math.min(100, (r.total / maxVolume) * 100);
             return `
-                <div class="lob-row" onclick="fillPrice(${level.price})">
-                    <div class="depth-bar" style="width: ${pct}%"></div>
-                    <span class="row-price">$${level.price.toFixed(2)}</span>
-                    <span class="row-size">${level.qty.toLocaleString()}</span>
-                    <span class="row-total">${level.cum.toLocaleString()}</span>
+                <div class="ladder-row" onclick="fillPrice(${r.price})">
+                    <div class="bar" style="width: ${widthPct}%"></div>
+                    <span class="row-price">${r.price.toFixed(2)}</span>
+                    <span class="row-size">${r.qty.toLocaleString()}</span>
+                    <span class="row-total">${r.total.toLocaleString()}</span>
                 </div>
             `;
         }).join("");
     }
 
-    // 3. Render Bids (Descending from best bid down)
-    if (bidLevels.length === 0) {
-        bidsContainer.innerHTML = `<div class="empty-hint">Bid book empty</div>`;
+    // Bids Ladder: Highest bid (best bid) at top
+    if (bidRows.length === 0) {
+        bidsContainer.innerHTML = `<div class="ladder-placeholder">No bids in book</div>`;
     } else {
-        bidsContainer.innerHTML = bidLevels.map(level => {
-            const pct = Math.min(100, (level.cum / maxCumulative) * 100);
+        bidsContainer.innerHTML = bidRows.map(r => {
+            const widthPct = Math.min(100, (r.total / maxVolume) * 100);
             return `
-                <div class="lob-row" onclick="fillPrice(${level.price})">
-                    <div class="depth-bar" style="width: ${pct}%"></div>
-                    <span class="row-price">$${level.price.toFixed(2)}</span>
-                    <span class="row-size">${level.qty.toLocaleString()}</span>
-                    <span class="row-total">${level.cum.toLocaleString()}</span>
+                <div class="ladder-row" onclick="fillPrice(${r.price})">
+                    <div class="bar" style="width: ${widthPct}%"></div>
+                    <span class="row-price">${r.price.toFixed(2)}</span>
+                    <span class="row-size">${r.qty.toLocaleString()}</span>
+                    <span class="row-total">${r.total.toLocaleString()}</span>
                 </div>
             `;
         }).join("");
@@ -261,36 +290,28 @@ function renderOrderBook(bids, asks) {
 
 
 // ==========================================================================
-// 4. TIME & SALES (TRADE TAPE)
+// 4. TIME & SALES TAPE
 // ==========================================================================
 
-let lastSeenTradeId = -1;
-
-function renderTrades(trades) {
+function renderTradeTape(trades) {
     if (!trades || trades.length === 0) {
-        tapeBody.innerHTML = `<div class="tape-empty">No fills yet. Fire orders to see live execution tape.</div>`;
-        tapeCount.textContent = "0 Fills";
+        tapeBody.innerHTML = `<div class="tape-empty">No trade fills recorded yet.</div>`;
         return;
     }
 
-    tapeCount.textContent = `${trades.length} Recent Fills`;
-
-    const html = trades.slice(0, 25).map(tr => {
-        const d = new Date(tr.timestamp_ns / 1_000_000);
-        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${(tr.timestamp_ns % 1_000_000_000 / 1_000_000).toFixed(0).padStart(3, '0')}`;
-        
-        // Randomly identify aggressor or display maker/taker
-        const sideClass = (tr.trade_id % 2 === 0) ? "tape-side-buy" : "tape-side-sell";
-        const sideText = (tr.trade_id % 2 === 0) ? "BUY" : "SELL";
+    const html = trades.slice(0, 30).map(t => {
+        const d = new Date(t.timestamp_ns / 1_000_000);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${(t.timestamp_ns % 1_000_000_000 / 1_000_000).toFixed(0).padStart(3, '0')}`;
+        const isBuy = t.trade_id % 2 === 0;
 
         return `
             <div class="tape-row">
                 <span class="tape-time">${timeStr}</span>
-                <span class="${sideClass}">${sideText}</span>
-                <span class="tape-price">$${tr.price.toFixed(2)}</span>
-                <span class="tape-qty">${tr.qty.toLocaleString()}</span>
-                <span class="tape-id">#${tr.maker_order_id}</span>
-                <span class="tape-id">#${tr.taker_order_id}</span>
+                <span class="${isBuy ? 'tape-side-buy' : 'tape-side-sell'}">${isBuy ? 'BUY' : 'SELL'}</span>
+                <span class="tape-price">$${t.price.toFixed(2)}</span>
+                <span class="tape-qty">${t.qty.toLocaleString()}</span>
+                <span class="tape-id">#${t.maker_order_id}</span>
+                <span class="tape-id">#${t.taker_order_id}</span>
             </div>
         `;
     }).join("");
@@ -300,7 +321,7 @@ function renderTrades(trades) {
 
 
 // ==========================================================================
-// 5. INTERACTIVE CANVAS CHARTS
+// 5. CANVAS CHARTS (MARKET DEPTH & LATENCY HISTOGRAM)
 // ==========================================================================
 
 function drawDepthChart(bids, asks) {
@@ -310,10 +331,10 @@ function drawDepthChart(bids, asks) {
 
     depthCtx.clearRect(0, 0, w, h);
 
-    // Background grid
-    depthCtx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    // Subtle background grid
+    depthCtx.strokeStyle = "rgba(255, 255, 255, 0.03)";
     depthCtx.lineWidth = 1;
-    for (let y = 30; y < h; y += 40) {
+    for (let y = 40; y < h; y += 50) {
         depthCtx.beginPath();
         depthCtx.moveTo(0, y);
         depthCtx.lineTo(w, y);
@@ -322,13 +343,13 @@ function drawDepthChart(bids, asks) {
 
     if (bids.length === 0 && asks.length === 0) {
         depthCtx.fillStyle = "#64748b";
-        depthCtx.font = "11px Inter, sans-serif";
+        depthCtx.font = "12px Inter, sans-serif";
         depthCtx.textAlign = "center";
-        depthCtx.fillText("Waiting for order depth data...", w / 2, h / 2);
+        depthCtx.fillText("No order book depth to display", w / 2, h / 2);
         return;
     }
 
-    // Cumulative sums
+    // Cumulative calculations
     let cumBids = [];
     let bTotal = 0;
     for (let i = 0; i < bids.length; i++) {
@@ -346,72 +367,74 @@ function drawDepthChart(bids, asks) {
     const maxVol = Math.max(bTotal, aTotal, 1);
     const midX = w / 2;
 
-    // Draw Bids (Green curve on Left, from midX backward)
+    // 1. Draw Bid Cumulative Polygon (Green, Left Side)
     if (cumBids.length > 0) {
         depthCtx.beginPath();
-        depthCtx.moveTo(midX, h - 15);
+        depthCtx.moveTo(midX, h - 20);
 
         for (let i = 0; i < cumBids.length; i++) {
-            const x = midX - ((i + 1) / cumBids.length) * (midX - 20);
-            const y = (h - 20) - (cumBids[i].cum / maxVol) * (h - 45);
+            const x = midX - ((i + 1) / cumBids.length) * (midX - 25);
+            const y = (h - 25) - (cumBids[i].cum / maxVol) * (h - 60);
             depthCtx.lineTo(x, y);
         }
 
-        const lastX = midX - (midX - 20);
-        depthCtx.lineTo(lastX, h - 15);
+        const lastX = midX - (midX - 25);
+        depthCtx.lineTo(lastX, h - 20);
         depthCtx.closePath();
 
         const bidGrad = depthCtx.createLinearGradient(0, 0, 0, h);
-        bidGrad.addColorStop(0, "rgba(0, 230, 118, 0.45)");
-        bidGrad.addColorStop(1, "rgba(0, 230, 118, 0.02)");
+        bidGrad.addColorStop(0, "rgba(16, 185, 129, 0.25)");
+        bidGrad.addColorStop(1, "rgba(16, 185, 129, 0.02)");
         depthCtx.fillStyle = bidGrad;
         depthCtx.fill();
 
-        depthCtx.strokeStyle = "#00e676";
-        depthCtx.lineWidth = 2;
+        depthCtx.strokeStyle = "#10b981";
+        depthCtx.lineWidth = 1.5;
         depthCtx.stroke();
     }
 
-    // Draw Asks (Red curve on Right, from midX forward)
+    // 2. Draw Ask Cumulative Polygon (Red, Right Side)
     if (cumAsks.length > 0) {
         depthCtx.beginPath();
-        depthCtx.moveTo(midX, h - 15);
+        depthCtx.moveTo(midX, h - 20);
 
         for (let i = 0; i < cumAsks.length; i++) {
-            const x = midX + ((i + 1) / cumAsks.length) * (midX - 20);
-            const y = (h - 20) - (cumAsks[i].cum / maxVol) * (h - 45);
+            const x = midX + ((i + 1) / cumAsks.length) * (midX - 25);
+            const y = (h - 25) - (cumAsks[i].cum / maxVol) * (h - 60);
             depthCtx.lineTo(x, y);
         }
 
-        const lastX = midX + (midX - 20);
-        depthCtx.lineTo(lastX, h - 15);
+        const lastX = midX + (midX - 25);
+        depthCtx.lineTo(lastX, h - 20);
         depthCtx.closePath();
 
         const askGrad = depthCtx.createLinearGradient(0, 0, 0, h);
-        askGrad.addColorStop(0, "rgba(255, 23, 68, 0.45)");
-        askGrad.addColorStop(1, "rgba(255, 23, 68, 0.02)");
+        askGrad.addColorStop(0, "rgba(244, 63, 94, 0.25)");
+        askGrad.addColorStop(1, "rgba(244, 63, 94, 0.02)");
         depthCtx.fillStyle = askGrad;
         depthCtx.fill();
 
-        depthCtx.strokeStyle = "#ff1744";
-        depthCtx.lineWidth = 2;
+        depthCtx.strokeStyle = "#f43f5e";
+        depthCtx.lineWidth = 1.5;
         depthCtx.stroke();
     }
 
-    // Center divider & labels
-    depthCtx.strokeStyle = "rgba(0, 242, 254, 0.4)";
-    depthCtx.lineWidth = 1;
+    // Midline Marker
+    depthCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    depthCtx.setLineDash([3, 3]);
     depthCtx.beginPath();
-    depthCtx.moveTo(midX, 10);
-    depthCtx.lineTo(midX, h - 15);
+    depthCtx.moveTo(midX, 20);
+    depthCtx.lineTo(midX, h - 20);
     depthCtx.stroke();
+    depthCtx.setLineDash([]);
 
-    depthCtx.fillStyle = "#94a3b8";
-    depthCtx.font = "10px JetBrains Mono, monospace";
+    // Axis Labels
+    depthCtx.fillStyle = "#64748b";
+    depthCtx.font = "10.5px JetBrains Mono, monospace";
     depthCtx.textAlign = "left";
-    depthCtx.fillText("BIDS (Cumulative)", 20, 20);
+    depthCtx.fillText("BIDS (Cumulative)", 25, 25);
     depthCtx.textAlign = "right";
-    depthCtx.fillText("ASKS (Cumulative)", w - 20, 20);
+    depthCtx.fillText("ASKS (Cumulative)", w - 25, 25);
 }
 
 function drawLatencyHistogram(stats) {
@@ -432,87 +455,76 @@ function drawLatencyHistogram(stats) {
     ];
 
     const maxVal = Math.max(...values, 2.0);
-    const barWidth = 45;
+    const barWidth = 48;
     const gap = (w - (labels.length * barWidth)) / (labels.length + 1);
 
     for (let i = 0; i < labels.length; i++) {
         const x = gap + i * (barWidth + gap);
-        const barHeight = Math.max(6, (values[i] / maxVal) * (h - 60));
-        const y = h - 30 - barHeight;
+        const barHeight = Math.max(6, (values[i] / maxVal) * (h - 70));
+        const y = h - 35 - barHeight;
 
-        // Gradient for bars
-        const grad = latencyCtx.createLinearGradient(0, y, 0, y + barHeight);
-        if (i <= 1) {
-            grad.addColorStop(0, "#00f2fe");
-            grad.addColorStop(1, "rgba(0, 242, 254, 0.2)");
-        } else if (i <= 4) {
-            grad.addColorStop(0, "#00e676");
-            grad.addColorStop(1, "rgba(0, 230, 118, 0.2)");
-        } else {
-            grad.addColorStop(0, "#ffc107");
-            grad.addColorStop(1, "rgba(255, 193, 7, 0.2)");
-        }
-
-        latencyCtx.fillStyle = grad;
+        // Clean subtle fill
+        latencyCtx.fillStyle = i <= 1 ? "rgba(56, 189, 248, 0.35)" : (i <= 4 ? "rgba(16, 185, 129, 0.35)" : "rgba(251, 191, 36, 0.35)");
         latencyCtx.fillRect(x, y, barWidth, barHeight);
 
+        // Border
+        latencyCtx.strokeStyle = i <= 1 ? "#38bdf8" : (i <= 4 ? "#10b981" : "#fbbf24");
+        latencyCtx.lineWidth = 1;
+        latencyCtx.strokeRect(x, y, barWidth, barHeight);
+
         // Value text
-        latencyCtx.fillStyle = "#f0f4f8";
-        latencyCtx.font = "10px JetBrains Mono, monospace";
+        latencyCtx.fillStyle = "#f8fafc";
+        latencyCtx.font = "10.5px JetBrains Mono, monospace";
         latencyCtx.textAlign = "center";
-        latencyCtx.fillText(`${values[i].toFixed(2)}μs`, x + barWidth / 2, y - 5);
+        latencyCtx.fillText(`${values[i].toFixed(2)}μs`, x + barWidth / 2, y - 6);
 
         // Label text
         latencyCtx.fillStyle = "#94a3b8";
-        latencyCtx.font = "10px Inter, sans-serif";
-        latencyCtx.fillText(labels[i], x + barWidth / 2, h - 12);
+        latencyCtx.font = "11px Inter, sans-serif";
+        latencyCtx.fillText(labels[i], x + barWidth / 2, h - 14);
     }
 }
 
 
 // ==========================================================================
-// 6. CHART TABS CONTROLLER
+// 6. TAB CONTROLLER
 // ==========================================================================
 
-const tabDepth = document.getElementById("tabDepth");
-const tabLatency = document.getElementById("tabLatency");
+function switchTab(tab) {
+    activeTab = tab;
+    tabDepth.className = tab === "depth" ? "seg-btn active" : "seg-btn";
+    tabTape.className = tab === "tape" ? "seg-btn active" : "seg-btn";
+    tabLatency.className = tab === "latency" ? "seg-btn active" : "seg-btn";
 
-tabDepth.addEventListener("click", () => {
-    activeChartTab = "depth";
-    tabDepth.className = "chart-tab active";
-    tabLatency.className = "chart-tab";
-    depthCanvas.style.display = "block";
-    latencyCanvas.style.display = "none";
-    if (lastTelemetry) drawDepthChart(lastTelemetry.bids, lastTelemetry.asks);
-});
+    paneDepth.className = tab === "depth" ? "tab-pane active" : "tab-pane";
+    paneTape.className = tab === "tape" ? "tab-pane active" : "tab-pane";
+    paneLatency.className = tab === "latency" ? "tab-pane active" : "tab-pane";
 
-tabLatency.addEventListener("click", () => {
-    activeChartTab = "latency";
-    tabLatency.className = "chart-tab active";
-    tabDepth.className = "chart-tab";
-    latencyCanvas.style.display = "block";
-    depthCanvas.style.display = "none";
-    if (lastTelemetry) drawLatencyHistogram(lastTelemetry.latency);
-});
+    if (lastTelemetry) {
+        if (tab === "depth") drawDepthChart(lastTelemetry.bids, lastTelemetry.asks);
+        else if (tab === "tape") renderTradeTape(lastTelemetry.recent_trades);
+        else if (tab === "latency") drawLatencyHistogram(lastTelemetry.latency);
+    }
+}
 
 
 // ==========================================================================
-// 7. FIREHOSE CONTROLS & REST API DISPATCHERS
+// 7. FIREHOSE SIMULATOR REST ACTIONS
 // ==========================================================================
 
 async function fireBurst(count) {
     try {
-        orderFeedback.textContent = `🚀 Firing burst of ${count.toLocaleString()} orders...`;
+        ticketStatus.textContent = `Injecting ${count.toLocaleString()} orders into IPC...`;
         const resp = await fetch("/api/burst", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ count }),
         });
-        const result = await resp.json();
-        orderFeedback.textContent = `✓ Fired ${result.orders_fired.toLocaleString()} orders in ${result.elapsed_seconds}s (${result.write_throughput.toLocaleString()} ord/s)!`;
-        setTimeout(() => { orderFeedback.textContent = ""; }, 4000);
+        const res = await resp.json();
+        ticketStatus.textContent = `✓ Injected ${res.orders_fired.toLocaleString()} orders in ${res.elapsed_seconds}s (${res.write_throughput.toLocaleString()} ord/s)`;
+        setTimeout(() => { ticketStatus.textContent = ""; }, 3500);
     } catch (err) {
-        orderFeedback.textContent = `Error: ${err.message}`;
+        ticketStatus.textContent = `Burst error: ${err.message}`;
     }
 }
 
@@ -532,7 +544,7 @@ async function toggleStream() {
 
 rateSlider.addEventListener("input", (e) => {
     const val = parseInt(e.target.value, 10);
-    rateDisplay.textContent = `${val.toLocaleString()} ord/s`;
+    rateDisplay.textContent = `${val.toLocaleString()} /s`;
 });
 
 rateSlider.addEventListener("change", async (e) => {
@@ -549,58 +561,97 @@ rateSlider.addEventListener("change", async (e) => {
 async function resetEngine() {
     try {
         await fetch("/api/reset", { method: "POST" });
-        orderFeedback.textContent = "↺ Limit Order Book & Ring Buffer reset.";
-        setTimeout(() => { orderFeedback.textContent = ""; }, 3000);
+        ticketStatus.textContent = "✓ Order book and buffer cleared";
+        setTimeout(() => { ticketStatus.textContent = ""; }, 2500);
     } catch (err) {
-        orderFeedback.textContent = `Reset failed: ${err.message}`;
+        ticketStatus.textContent = `Reset failed: ${err.message}`;
     }
 }
 
 
 // ==========================================================================
-// 8. MANUAL ORDER ENTRY TICKET
+// 8. INTERACTIVE ORDER ENTRY TICKET
 // ==========================================================================
 
 function setSide(side) {
     currentSide = side;
     if (side === "BUY") {
-        btnSideBuy.className = "btn-side btn-buy active";
-        btnSideSell.className = "btn-side btn-sell";
-        btnSubmitOrder.className = "btn btn-submit-order buy-mode";
-        btnSubmitOrder.textContent = "SUBMIT BUY ORDER";
+        btnSideBuy.className = "side-tab buy active";
+        btnSideSell.className = "side-tab sell";
+        btnSubmitOrder.className = "btn btn-submit-trade buy";
+        btnSubmitOrder.textContent = currentType === "LIMIT" ? "Place Buy Order" : "Market Buy";
     } else {
-        btnSideBuy.className = "btn-side btn-buy";
-        btnSideSell.className = "btn-side btn-sell active";
-        btnSubmitOrder.className = "btn btn-submit-order sell-mode";
-        btnSubmitOrder.textContent = "SUBMIT SELL ORDER";
+        btnSideBuy.className = "side-tab buy";
+        btnSideSell.className = "side-tab sell active";
+        btnSubmitOrder.className = "btn btn-submit-trade sell";
+        btnSubmitOrder.textContent = currentType === "LIMIT" ? "Place Sell Order" : "Market Sell";
     }
+}
+
+function setType(type) {
+    currentType = type;
+    if (type === "LIMIT") {
+        typeLimit.className = "type-btn active";
+        typeMarket.className = "type-btn";
+        priceFieldWrapper.style.display = "flex";
+        btnSubmitOrder.textContent = currentSide === "BUY" ? "Place Buy Order" : "Place Sell Order";
+    } else {
+        typeLimit.className = "type-btn";
+        typeMarket.className = "type-btn active";
+        priceFieldWrapper.style.display = "none";
+        btnSubmitOrder.textContent = currentSide === "BUY" ? "Market Buy" : "Market Sell";
+    }
+    updateOrderEstimate();
 }
 
 function stepPrice(delta) {
     const cur = parseFloat(orderPrice.value) || 150.0;
     orderPrice.value = (Math.max(0.01, cur + delta)).toFixed(2);
+    updateOrderEstimate();
+}
+
+function stepQty(delta) {
+    const cur = parseInt(orderQty.value, 10) || 100;
+    orderQty.value = Math.max(1, cur + delta);
+    updateOrderEstimate();
 }
 
 function setQty(qty) {
     orderQty.value = qty;
+    updateOrderEstimate();
 }
 
 function fillPrice(price) {
     orderPrice.value = price.toFixed(2);
+    updateOrderEstimate();
+}
+
+function updateOrderEstimate() {
+    const qty = parseInt(orderQty.value, 10) || 0;
+    let price = parseFloat(orderPrice.value) || 150.0;
+    if (currentType === "MARKET" && lastTelemetry && lastTelemetry.mid_price) {
+        price = lastTelemetry.mid_price;
+    }
+    const val = price * qty;
+    orderValueEstimate.textContent = `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 async function submitManualOrder(event) {
     event.preventDefault();
-    const price = parseFloat(orderPrice.value);
     const qty = parseInt(orderQty.value, 10);
+    let price = parseFloat(orderPrice.value);
+
+    if (currentType === "MARKET") {
+        price = currentSide === "BUY" ? 99999.0 : 0.01;
+    }
 
     if (isNaN(price) || price <= 0 || isNaN(qty) || qty <= 0) {
-        orderFeedback.textContent = "Invalid price or quantity";
+        ticketStatus.textContent = "Invalid order parameters";
         return;
     }
 
     try {
-        orderFeedback.textContent = `Sending ${currentSide} ${qty} shs @ $${price.toFixed(2)}...`;
+        ticketStatus.textContent = `Routing ${currentSide} ${qty} @ $${price.toFixed(2)} to memory map...`;
         const resp = await fetch("/api/order", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -611,15 +662,15 @@ async function submitManualOrder(event) {
             }),
         });
 
-        const result = await resp.json();
-        if (result.success) {
-            orderFeedback.textContent = `✓ Order #${result.order_id} written to IPC bus!`;
+        const res = await resp.json();
+        if (res.success) {
+            ticketStatus.textContent = `✓ Order #${res.order_id} filled/queued in IPC`;
         } else {
-            orderFeedback.textContent = `⚠ Buffer saturated, order dropped.`;
+            ticketStatus.textContent = "⚠ Buffer saturated, dropped";
         }
-        setTimeout(() => { orderFeedback.textContent = ""; }, 3500);
+        setTimeout(() => { ticketStatus.textContent = ""; }, 3000);
     } catch (err) {
-        orderFeedback.textContent = `Order failed: ${err.message}`;
+        ticketStatus.textContent = `Submission failed: ${err.message}`;
     }
 }
 
@@ -629,5 +680,7 @@ async function submitManualOrder(event) {
 // ==========================================================================
 window.addEventListener("DOMContentLoaded", () => {
     setSide("BUY");
+    setType("LIMIT");
+    updateOrderEstimate();
     connectWebSocket();
 });
