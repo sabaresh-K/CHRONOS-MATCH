@@ -6,361 +6,348 @@
     <title>ChronosMatch — Institutional HFT Terminal</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="app-shell">
+    <div class="terminal-shell">
         <!-- TOP NAVIGATION BAR -->
-        <header class="top-nav">
-            <div class="nav-left">
-                <div class="app-brand">
-                    <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <header class="navbar">
+            <div class="nav-brand-group">
+                <div class="brand-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                     </svg>
-                    <span class="brand-name">ChronosMatch</span>
-                    <span class="version-tag">PRO</span>
                 </div>
-
-                <div class="market-ticker">
-                    <div class="ticker-symbol">
-                        <span class="symbol-main">CORE</span>
-                        <span class="symbol-pair">/USD</span>
-                    </div>
-                    <div class="ticker-stat">
-                        <span class="stat-caption">LAST MID</span>
-                        <span class="stat-num" id="tickerMid">$150.00</span>
-                    </div>
-                    <div class="ticker-stat">
-                        <span class="stat-caption">SPREAD</span>
-                        <span class="stat-num" id="tickerSpread">$0.01 <span class="sub-ticks">(1 tick)</span></span>
-                    </div>
-                    <div class="ticker-stat">
-                        <span class="stat-caption">MATCHED VOL</span>
-                        <span class="stat-num" id="tickerVol">0 shs</span>
-                    </div>
+                <div class="brand-text">
+                    <span class="brand-name">CHRONOSMATCH</span>
+                    <span class="brand-tag">HFT CORE</span>
+                </div>
+                <div class="market-badge">
+                    <span class="pair-base">CORE</span>
+                    <span class="pair-quote">/USD</span>
                 </div>
             </div>
 
-            <div class="nav-right">
-                <div class="engine-badge" id="engineBadge">
-                    <span class="status-indicator live"></span>
+            <!-- LIVE MARKET STRIP -->
+            <div class="market-stats-strip">
+                <div class="stat-pill">
+                    <span class="pill-label">MID PRICE</span>
+                    <span class="pill-val cyan" id="statMid">$150.00</span>
+                </div>
+                <div class="stat-pill">
+                    <span class="pill-label">SPREAD</span>
+                    <span class="pill-val yellow" id="statSpread">$0.01 <span class="dim">(1 tick)</span></span>
+                </div>
+                <div class="stat-pill">
+                    <span class="pill-label">MEDIAN LATENCY</span>
+                    <span class="pill-val emerald" id="statP50">0.50 μs</span>
+                </div>
+                <div class="stat-pill">
+                    <span class="pill-label">THROUGHPUT</span>
+                    <span class="pill-val" id="statThroughput">0 ord/s</span>
+                </div>
+                <div class="stat-pill">
+                    <span class="pill-label">MATCHED VOL</span>
+                    <span class="pill-val" id="statVolume">0 shs</span>
+                </div>
+            </div>
+
+            <!-- SYSTEM & WEBSOCKET STATUS -->
+            <div class="nav-system-group">
+                <div class="backend-pill">
+                    <span class="pulse-indicator"></span>
                     <span id="backendText">Cython Native (nogil)</span>
                 </div>
-
-                <div class="shm-pill">
-                    <svg class="pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
-                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
-                        <line x1="6" y1="6" x2="6.01" y2="6"/>
-                        <line x1="6" y1="18" x2="6.01" y2="18"/>
-                    </svg>
-                    <span>chronos_ipc.shm</span>
+                <div class="ws-pill connected" id="wsStatus">
+                    <span class="ws-dot"></span>
+                    <span id="wsStatusText">LIVE</span>
                 </div>
-
-                <div class="connection-pill" id="connectionStatus">
-                    <span class="dot"></span>
-                    <span id="connectionText">CONNECTED</span>
-                </div>
-
-                <div class="uptime-counter">
-                    <span class="uptime-label">UP:</span>
-                    <span class="uptime-time" id="uptimeVal">0.0s</span>
-                </div>
-            </div>
-        </header>
-
-        <!-- SUB-TOOLBAR: SIMULATOR FIREHOSE & TELEMETRY STRIP -->
-        <section class="toolbar">
-            <div class="toolbar-section">
-                <span class="toolbar-label">SIMULATOR FIREHOSE</span>
-                <div class="btn-group">
-                    <button class="btn btn-chip" onclick="fireBurst(10000)">10k</button>
-                    <button class="btn btn-chip" onclick="fireBurst(50000)">50k</button>
-                    <button class="btn btn-chip" onclick="fireBurst(100000)">100k</button>
-                    <button class="btn btn-chip highlight" onclick="fireBurst(500000)">500k Max</button>
-                </div>
-            </div>
-
-            <div class="toolbar-divider"></div>
-
-            <div class="toolbar-section stream-section">
-                <span class="toolbar-label">RATE:</span>
-                <span class="rate-val" id="rateDisplay">50,000 /s</span>
-                <input type="range" id="rateSlider" min="10000" max="250000" step="10000" value="50000">
-                <button class="btn btn-action" id="btnStreamToggle" onclick="toggleStream()">
-                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    <span>Start Stream</span>
-                </button>
-            </div>
-
-            <div class="toolbar-divider"></div>
-
-            <div class="toolbar-section quick-stats">
-                <div class="quick-metric">
-                    <span class="qm-label">MEDIAN (p50)</span>
-                    <span class="qm-value cyan" id="statP50">0.50 μs</span>
-                </div>
-                <div class="quick-metric">
-                    <span class="qm-label">TAIL (p99)</span>
-                    <span class="qm-value emerald" id="statP99">1.70 μs</span>
-                </div>
-                <div class="quick-metric">
-                    <span class="qm-label">THROUGHPUT</span>
-                    <span class="qm-value yellow" id="statThroughput">0 ord/s</span>
-                </div>
-            </div>
-
-            <div class="toolbar-actions">
-                <button class="btn btn-subtle" onclick="resetEngine()" title="Reset order book and buffer">
-                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <button class="btn btn-reset" onclick="resetEngine()" title="Reset Order Book & History">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                         <path d="M3 3v5h5"/>
                     </svg>
-                    <span>Reset Book</span>
+                    <span>Reset</span>
                 </button>
+            </div>
+        </header>
+
+        <!-- STREAM CONTROLLER & QUICK BURST TOOLBAR -->
+        <section class="control-strip">
+            <!-- STREAM ENGINE CONTROL -->
+            <div class="strip-section stream-control-box">
+                <span class="section-title">STREAM CONTROLLER</span>
+                <div class="stream-action-group">
+                    <button class="btn btn-stream-toggle" id="btnStreamToggle" onclick="toggleStream()">
+                        <span class="stream-icon" id="streamIcon">▶</span>
+                        <span id="streamBtnText">START STREAM</span>
+                    </button>
+                    <div class="stream-status-badge paused" id="streamBadge">PAUSED</div>
+                </div>
+
+                <div class="stream-rate-selector">
+                    <span class="rate-label">SPEED:</span>
+                    <button class="rate-chip active" onclick="setStreamRate(500)">500/s</button>
+                    <button class="rate-chip" onclick="setStreamRate(1000)">1k/s</button>
+                    <button class="rate-chip" onclick="setStreamRate(2500)">2.5k/s</button>
+                    <button class="rate-chip" onclick="setStreamRate(5000)">5k/s</button>
+                </div>
+            </div>
+
+            <div class="strip-divider"></div>
+
+            <!-- QUICK INJECTION BURSTS -->
+            <div class="strip-section burst-box">
+                <span class="section-title">ONE-CLICK ORDER BURSTS</span>
+                <div class="burst-chips-group">
+                    <button class="btn btn-burst" onclick="fireBurst(1000)">+1k Orders</button>
+                    <button class="btn btn-burst" onclick="fireBurst(5000)">+5k Orders</button>
+                    <button class="btn btn-burst" onclick="fireBurst(25000)">+25k Orders</button>
+                    <button class="btn btn-burst highlight" onclick="fireBurst(50000)">+50k Burst</button>
+                </div>
+            </div>
+
+            <div class="strip-divider"></div>
+
+            <!-- HARDWARE RING BUFFER TELEMETRY -->
+            <div class="strip-section buffer-box">
+                <span class="section-title">IPC ZERO-COPY RING BUFFER</span>
+                <div class="buffer-meter-wrapper">
+                    <div class="buffer-meta">
+                        <span id="ringMetaText">0 / 65,536 slots (0.0%)</span>
+                        <span class="buffer-dropped" id="ringDroppedText">0 dropped</span>
+                    </div>
+                    <div class="buffer-progress-track">
+                        <div class="buffer-progress-fill" id="ringProgressFill" style="width: 0%"></div>
+                    </div>
+                </div>
             </div>
         </section>
 
-        <!-- MAIN TERMINAL WORKSPACE -->
-        <main class="terminal-grid">
-            <!-- COLUMN 1: ORDER BOOK (L2 DOM) -->
-            <section class="card book-card">
-                <div class="card-header">
-                    <div class="card-title">
-                        <span>Order Book</span>
-                        <span class="caption">Depth of Market</span>
+        <!-- MAIN TRADING WORKSPACE (3 COLUMNS) -->
+        <main class="workspace-grid">
+            <!-- COLUMN 1: LEVEL 2 ORDER BOOK (DOM) -->
+            <section class="panel book-panel">
+                <div class="panel-header">
+                    <div class="panel-heading">
+                        <span class="heading-title">Order Book</span>
+                        <span class="heading-sub">L2 Market Depth</span>
                     </div>
-                    <div class="book-filters">
-                        <span class="view-pill active">0.01</span>
-                    </div>
-                </div>
-
-                <div class="book-table-header">
-                    <span class="th-price">Price (USD)</span>
-                    <span class="th-size">Size</span>
-                    <span class="th-total">Total</span>
-                </div>
-
-                <!-- ASKS LADDER -->
-                <div class="book-ladder asks-ladder" id="asksContainer">
-                    <div class="ladder-placeholder">Awaiting order flow...</div>
-                </div>
-
-                <!-- SPREAD / MID ROW -->
-                <div class="spread-row" id="spreadBanner">
-                    <div class="spread-info">
-                        <span class="spread-tag">Spread</span>
-                        <span class="spread-amt" id="spreadVal">$0.01</span>
-                        <span class="spread-ticks" id="spreadTicks">(1 tick)</span>
-                    </div>
-                    <div class="mid-info">
-                        <span class="mid-tag">Mid</span>
-                        <span class="mid-amt" id="midVal">$150.00</span>
+                    <div class="book-view-tabs">
+                        <button class="tab-chip active" id="viewBoth" onclick="setBookFilter('both')">All</button>
+                        <button class="tab-chip" id="viewBids" onclick="setBookFilter('bids')">Bids</button>
+                        <button class="tab-chip" id="viewAsks" onclick="setBookFilter('asks')">Asks</button>
                     </div>
                 </div>
 
-                <!-- BIDS LADDER -->
-                <div class="book-ladder bids-ladder" id="bidsContainer">
-                    <div class="ladder-placeholder">Awaiting order flow...</div>
+                <div class="book-columns-header">
+                    <span class="col-price">PRICE (USD)</span>
+                    <span class="col-size">SIZE</span>
+                    <span class="col-depth">TOTAL</span>
+                </div>
+
+                <!-- ASKS LADDER (SELLERS) -->
+                <div class="ladder-container asks-container" id="asksContainer">
+                    <div class="empty-state">Loading order book...</div>
+                </div>
+
+                <!-- SPREAD & MID ROW -->
+                <div class="spread-indicator-bar" id="spreadRow">
+                    <div class="spread-item">
+                        <span class="sp-label">Spread</span>
+                        <span class="sp-val" id="spreadText">$0.01</span>
+                        <span class="sp-ticks" id="spreadTicksText">(1 tick)</span>
+                    </div>
+                    <div class="mid-item">
+                        <span class="mid-label">Mid Price</span>
+                        <span class="mid-val" id="midPriceText">$150.00</span>
+                    </div>
+                </div>
+
+                <!-- BIDS LADDER (BUYERS) -->
+                <div class="ladder-container bids-container" id="bidsContainer">
+                    <div class="empty-state">Loading order book...</div>
                 </div>
             </section>
 
-            <!-- COLUMN 2: ANALYTICS & TIME/SALES -->
-            <section class="card center-card">
-                <div class="card-header tab-header">
-                    <div class="segmented-control">
-                        <button class="seg-btn active" id="tabDepth" onclick="switchTab('depth')">Market Depth</button>
-                        <button class="seg-btn" id="tabTape" onclick="switchTab('tape')">Time &amp; Sales</button>
-                        <button class="seg-btn" id="tabLatency" onclick="switchTab('latency')">Latency Distribution</button>
+            <!-- COLUMN 2: CHARTS & TIME/SALES -->
+            <section class="panel center-panel">
+                <div class="panel-header tabbed-header">
+                    <div class="segmented-tabs">
+                        <button class="seg-tab active" id="tabDepth" onclick="switchMainTab('depth')">
+                            Depth Visualizer
+                        </button>
+                        <button class="seg-tab" id="tabTape" onclick="switchMainTab('tape')">
+                            Time &amp; Sales Tape
+                        </button>
+                        <button class="seg-tab" id="tabLatency" onclick="switchMainTab('latency')">
+                            Latency Distribution
+                        </button>
                     </div>
 
-                    <div class="header-metrics" id="tabHeaderMetrics">
-                        <span class="metric-chip" id="chipThroughput">0 ord/s</span>
-                        <span class="metric-chip" id="chipTrades">0 fills</span>
+                    <div class="live-activity-pills">
+                        <span class="activity-chip" id="chipOrdersTotal">0 orders</span>
+                        <span class="activity-chip" id="chipTradesTotal">0 fills</span>
                     </div>
                 </div>
 
-                <!-- TAB 1: MARKET DEPTH CHART -->
-                <div class="tab-pane active" id="paneDepth">
-                    <div class="canvas-box">
-                        <canvas id="depthCanvas" width="620" height="340"></canvas>
+                <!-- VIEW 1: MARKET DEPTH CANVAS -->
+                <div class="tab-content active" id="paneDepth">
+                    <div class="canvas-container">
+                        <canvas id="depthCanvas" width="680" height="360"></canvas>
                     </div>
                 </div>
 
-                <!-- TAB 2: TIME & SALES TAPE -->
-                <div class="tab-pane" id="paneTape">
-                    <div class="tape-table-header">
-                        <span>Time</span>
-                        <span>Side</span>
-                        <span>Price</span>
-                        <span>Quantity</span>
-                        <span>Maker ID</span>
-                        <span>Taker ID</span>
+                <!-- VIEW 2: TIME & SALES TAPE -->
+                <div class="tab-content" id="paneTape">
+                    <div class="tape-header-row">
+                        <span>TIME</span>
+                        <span>SIDE</span>
+                        <span>FILL PRICE</span>
+                        <span>SHARES</span>
+                        <span>MAKER OID</span>
+                        <span>TAKER OID</span>
                     </div>
-                    <div class="tape-scroller" id="tapeBody">
-                        <div class="tape-empty">No trade fills recorded yet.</div>
+                    <div class="tape-stream-body" id="tapeBody">
+                        <div class="tape-placeholder">No fills yet. Fire an order burst to see real-time trade tape.</div>
                     </div>
                 </div>
 
-                <!-- TAB 3: LATENCY DISTRIBUTION -->
-                <div class="tab-pane" id="paneLatency">
-                    <div class="canvas-box">
-                        <canvas id="latencyCanvas" width="620" height="340"></canvas>
+                <!-- VIEW 3: LATENCY DISTRIBUTION -->
+                <div class="tab-content" id="paneLatency">
+                    <div class="canvas-container">
+                        <canvas id="latencyCanvas" width="680" height="360"></canvas>
                     </div>
                 </div>
             </section>
 
             <!-- COLUMN 3: ORDER TICKET & TELEMETRY -->
-            <aside class="right-column">
+            <aside class="right-panel">
                 <!-- ORDER ENTRY TICKET -->
-                <section class="card ticket-card">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <span>Order Ticket</span>
-                            <span class="caption">Zero-Copy Submission</span>
+                <section class="panel ticket-panel">
+                    <div class="panel-header">
+                        <div class="panel-heading">
+                            <span class="heading-title">Order Entry</span>
+                            <span class="heading-sub">Direct Execution</span>
                         </div>
                     </div>
 
-                    <div class="ticket-body">
-                        <!-- SIDE SELECTOR -->
-                        <div class="side-tabs">
-                            <button type="button" class="side-tab buy active" id="btnSideBuy" onclick="setSide('BUY')">
-                                Buy / Long
+                    <div class="ticket-content">
+                        <!-- SIDE SELECTOR (BUY / SELL) -->
+                        <div class="side-selector-bar">
+                            <button type="button" class="side-btn buy active" id="btnSideBuy" onclick="setSide('BUY')">
+                                BUY / LONG
                             </button>
-                            <button type="button" class="side-tab sell" id="btnSideSell" onclick="setSide('SELL')">
-                                Sell / Short
+                            <button type="button" class="side-btn sell" id="btnSideSell" onclick="setSide('SELL')">
+                                SELL / SHORT
                             </button>
                         </div>
 
-                        <form id="orderForm" onsubmit="submitManualOrder(event)">
-                            <!-- ORDER TYPE -->
-                            <div class="form-field">
-                                <label class="field-label">Order Type</label>
-                                <div class="type-selector">
-                                    <button type="button" class="type-btn active" id="typeLimit" onclick="setType('LIMIT')">Limit</button>
-                                    <button type="button" class="type-btn" id="typeMarket" onclick="setType('MARKET')">Market</button>
-                                </div>
-                            </div>
-
-                            <!-- PRICE INPUT -->
-                            <div class="form-field" id="priceFieldWrapper">
-                                <div class="field-header">
-                                    <label class="field-label" for="orderPrice">Price</label>
-                                    <span class="currency-tag">USD</span>
-                                </div>
-                                <div class="stepper-input">
-                                    <button type="button" class="step-btn" onclick="stepPrice(-0.01)">−</button>
-                                    <input type="number" id="orderPrice" step="0.01" min="0.01" max="99999.00" value="150.00" required>
-                                    <button type="button" class="step-btn" onclick="stepPrice(0.01)">+</button>
-                                </div>
-                            </div>
-
-                            <!-- QUANTITY INPUT -->
-                            <div class="form-field">
-                                <div class="field-header">
-                                    <label class="field-label" for="orderQty">Quantity</label>
-                                    <span class="currency-tag">SHARES</span>
-                                </div>
-                                <div class="stepper-input">
-                                    <button type="button" class="step-btn" onclick="stepQty(-50)">−</button>
-                                    <input type="number" id="orderQty" step="10" min="1" max="500000" value="100" required oninput="updateOrderEstimate()">
-                                    <button type="button" class="step-btn" onclick="stepQty(50)">+</button>
-                                </div>
-                                <div class="preset-chips">
-                                    <button type="button" class="chip" onclick="setQty(100)">100</button>
-                                    <button type="button" class="chip" onclick="setQty(500)">500</button>
-                                    <button type="button" class="chip" onclick="setQty(1000)">1k</button>
-                                    <button type="button" class="chip" onclick="setQty(5000)">5k</button>
-                                </div>
-                            </div>
-
-                            <!-- ORDER SUMMARY -->
-                            <div class="order-summary">
-                                <div class="summary-line">
-                                    <span class="sum-label">Est. Value:</span>
-                                    <span class="sum-val" id="orderValueEstimate">$15,000.00</span>
-                                </div>
-                                <div class="summary-line">
-                                    <span class="sum-label">Execution:</span>
-                                    <span class="sum-val highlight">Direct SHM Ring</span>
-                                </div>
-                            </div>
-
-                            <!-- SUBMIT BUTTON -->
-                            <button type="submit" class="btn btn-submit-trade buy" id="btnSubmitOrder">
-                                Place Buy Order
+                        <!-- ORDER TYPE (LIMIT / MARKET) -->
+                        <div class="type-selector-bar">
+                            <button type="button" class="type-btn active" id="btnTypeLimit" onclick="setOrderType('LIMIT')">
+                                Limit Order
                             </button>
-                        </form>
+                            <button type="button" class="type-btn" id="btnTypeMarket" onclick="setOrderType('MARKET')">
+                                Market Order
+                            </button>
+                        </div>
 
-                        <div class="ticket-status" id="ticketStatus"></div>
+                        <!-- PRICE INPUT & SNAP CHIPS -->
+                        <div class="form-group" id="priceGroup">
+                            <div class="form-label-row">
+                                <label for="orderPrice">ORDER PRICE</label>
+                                <span class="currency">USD</span>
+                            </div>
+                            <div class="price-input-stepper">
+                                <button type="button" class="step-btn" onclick="stepPrice(-0.05)">-5¢</button>
+                                <button type="button" class="step-btn" onclick="stepPrice(-0.01)">-1¢</button>
+                                <input type="number" id="orderPrice" step="0.01" min="0.01" max="99999.00" value="150.00" oninput="updateEstimate()">
+                                <button type="button" class="step-btn" onclick="stepPrice(0.01)">+1¢</button>
+                                <button type="button" class="step-btn" onclick="stepPrice(0.05)">+5¢</button>
+                            </div>
+                            <!-- QUICK SNAP BUTTONS -->
+                            <div class="quick-snap-row">
+                                <button type="button" class="snap-chip" onclick="snapPrice('bid')">Best Bid</button>
+                                <button type="button" class="snap-chip" onclick="snapPrice('mid')">Mid Price</button>
+                                <button type="button" class="snap-chip" onclick="snapPrice('ask')">Best Ask</button>
+                            </div>
+                        </div>
+
+                        <!-- QUANTITY INPUT & PRESET CHIPS -->
+                        <div class="form-group">
+                            <div class="form-label-row">
+                                <label for="orderQty">QUANTITY</label>
+                                <span class="currency">SHARES</span>
+                            </div>
+                            <div class="qty-input-stepper">
+                                <button type="button" class="step-btn" onclick="stepQty(-50)">-50</button>
+                                <input type="number" id="orderQty" step="10" min="1" max="100000" value="100" oninput="updateEstimate()">
+                                <button type="button" class="step-btn" onclick="stepQty(50)">+50</button>
+                            </div>
+                            <div class="qty-presets-row">
+                                <button type="button" class="preset-chip" onclick="setQty(50)">50</button>
+                                <button type="button" class="preset-chip" onclick="setQty(100)">100</button>
+                                <button type="button" class="preset-chip" onclick="setQty(500)">500</button>
+                                <button type="button" class="preset-chip" onclick="setQty(1000)">1k</button>
+                                <button type="button" class="preset-chip" onclick="setQty(5000)">5k</button>
+                            </div>
+                        </div>
+
+                        <!-- ESTIMATED TOTAL ROW -->
+                        <div class="order-summary-box">
+                            <div class="summary-item">
+                                <span class="sum-k">ESTIMATED TOTAL:</span>
+                                <span class="sum-v" id="orderEstValue">$15,000.00</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="sum-k">EXECUTION:</span>
+                                <span class="sum-v highlight">Deterministic Microsecond</span>
+                            </div>
+                        </div>
+
+                        <!-- SUBMIT BUTTON -->
+                        <button type="button" class="btn btn-submit-order buy" id="btnSubmitOrder" onclick="submitOrder()">
+                            PLACE BUY ORDER
+                        </button>
+
+                        <!-- FEEDBACK NOTIFICATION BANNER -->
+                        <div class="feedback-banner" id="orderFeedback">
+                            Ready to submit orders.
+                        </div>
                     </div>
                 </section>
 
-                <!-- TELEMETRY & LATENCY CARD -->
-                <section class="card telemetry-card">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <span>Engine Latency</span>
-                            <span class="caption">Microsecond Metrics</span>
+                <!-- RECENT ORDERS LOG -->
+                <section class="panel orders-history-panel">
+                    <div class="panel-header">
+                        <div class="panel-heading">
+                            <span class="heading-title">Recent Submissions</span>
                         </div>
                     </div>
-
-                    <div class="telemetry-table">
-                        <div class="telemetry-row">
-                            <span class="t-label">Median (p50)</span>
-                            <span class="t-val cyan" id="latP50">0.50 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">90th Percentile</span>
-                            <span class="t-val" id="latP90">0.70 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">95th Percentile</span>
-                            <span class="t-val" id="latP95">1.10 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">99th Percentile</span>
-                            <span class="t-val emerald" id="latP99">1.70 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">99.9th Percentile</span>
-                            <span class="t-val" id="latP999">5.80 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">Min / Max</span>
-                            <span class="t-val muted" id="latMinMax">0.20 / 84.4 μs</span>
-                        </div>
-                        <div class="telemetry-row">
-                            <span class="t-label">Average</span>
-                            <span class="t-val" id="latAvg">0.60 μs</span>
-                        </div>
+                    <div class="orders-history-list" id="userOrdersList">
+                        <div class="history-empty">No manual orders placed yet.</div>
                     </div>
                 </section>
             </aside>
         </main>
 
-        <!-- FOOTER STATUS STRIP -->
-        <footer class="bottom-bar">
+        <!-- FOOTER STATUS BAR -->
+        <footer class="bottom-footer">
             <div class="footer-left">
-                <span class="footer-item">
-                    <span class="dot-status ok"></span>
-                    <span>Single Producer Single Consumer (SPSC) IPC</span>
-                </span>
-                <span class="footer-sep">/</span>
-                <span class="footer-item">Buffer Capacity: <strong>65,536 slots</strong></span>
-                <span class="footer-sep">/</span>
-                <span class="footer-item" id="footerOccupancy">Occupancy: 0 (0.0%)</span>
+                <span class="status-item"><span class="dot green"></span> Zero-Copy Shared Memory IPC</span>
+                <span class="footer-pipe">|</span>
+                <span class="status-item">Buffer: <strong>chronos_ipc.shm</strong></span>
+                <span class="footer-pipe">|</span>
+                <span class="status-item">L1 Cache Line Aligned (64B Header)</span>
             </div>
-
             <div class="footer-right">
-                <span class="footer-item" id="footerOrdersCount">Processed: 0 orders</span>
-                <span class="footer-sep">/</span>
-                <span class="footer-item" id="footerTradesCount">Executed: 0 trades</span>
-                <span class="footer-sep">/</span>
-                <span class="footer-item" id="footerDroppedCount">Dropped: 0</span>
+                <span class="status-item" id="footerOrders">Orders: 0</span>
+                <span class="footer-pipe">|</span>
+                <span class="status-item" id="footerTrades">Fills: 0</span>
+                <span class="footer-pipe">|</span>
+                <span class="status-item" id="footerUptime">Uptime: 0.0s</span>
             </div>
         </footer>
     </div>

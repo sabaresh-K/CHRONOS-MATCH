@@ -1,52 +1,58 @@
 /**
  * ChronosMatch Institutional HFT Terminal Controller
- * Professional client-side state machine, WebSocket data stream, DOM ladder diffing,
- * and high-DPI canvas charting.
+ * Real-time WebSocket processing, tactile order entry with instant fill feedback,
+ * deterministic stream controls, and high-DPI canvas depth visualizer.
  */
 
 // Global State
 let ws = null;
 let currentSide = "BUY";
-let currentType = "LIMIT";
-let activeTab = "depth";
+let currentOrderType = "LIMIT";
+let currentBookFilter = "both";
+let activeMainTab = "depth";
 let simActive = false;
+let currentSimRate = 500;
 let lastTelemetry = null;
 
 // DOM Elements
-const connectionStatus = document.getElementById("connectionStatus");
-const connectionText = document.getElementById("connectionText");
+const wsStatus = document.getElementById("wsStatus");
+const wsStatusText = document.getElementById("wsStatusText");
 const backendText = document.getElementById("backendText");
-const uptimeVal = document.getElementById("uptimeVal");
 
-// Header Ticker
-const tickerMid = document.getElementById("tickerMid");
-const tickerSpread = document.getElementById("tickerSpread");
-const tickerVol = document.getElementById("tickerVol");
-
-// Toolbar
-const rateSlider = document.getElementById("rateSlider");
-const rateDisplay = document.getElementById("rateDisplay");
-const btnStreamToggle = document.getElementById("btnStreamToggle");
+// Header Stats
+const statMid = document.getElementById("statMid");
+const statSpread = document.getElementById("statSpread");
 const statP50 = document.getElementById("statP50");
-const statP99 = document.getElementById("statP99");
 const statThroughput = document.getElementById("statThroughput");
+const statVolume = document.getElementById("statVolume");
+
+// Stream Control
+const btnStreamToggle = document.getElementById("btnStreamToggle");
+const streamIcon = document.getElementById("streamIcon");
+const streamBtnText = document.getElementById("streamBtnText");
+const streamBadge = document.getElementById("streamBadge");
+
+// Ring Buffer Progress
+const ringMetaText = document.getElementById("ringMetaText");
+const ringDroppedText = document.getElementById("ringDroppedText");
+const ringProgressFill = document.getElementById("ringProgressFill");
 
 // Order Book (DOM)
 const asksContainer = document.getElementById("asksContainer");
 const bidsContainer = document.getElementById("bidsContainer");
-const spreadVal = document.getElementById("spreadVal");
-const spreadTicks = document.getElementById("spreadTicks");
-const midVal = document.getElementById("midVal");
+const spreadText = document.getElementById("spreadText");
+const spreadTicksText = document.getElementById("spreadTicksText");
+const midPriceText = document.getElementById("midPriceText");
 
-// Tabs & Panes
+// Center Panel Tabs
 const tabDepth = document.getElementById("tabDepth");
 const tabTape = document.getElementById("tabTape");
 const tabLatency = document.getElementById("tabLatency");
 const paneDepth = document.getElementById("paneDepth");
 const paneTape = document.getElementById("paneTape");
 const paneLatency = document.getElementById("paneLatency");
-const chipThroughput = document.getElementById("chipThroughput");
-const chipTrades = document.getElementById("chipTrades");
+const chipOrdersTotal = document.getElementById("chipOrdersTotal");
+const chipTradesTotal = document.getElementById("chipTradesTotal");
 
 // Canvases
 const depthCanvas = document.getElementById("depthCanvas");
@@ -57,32 +63,23 @@ const latencyCtx = latencyCanvas ? latencyCanvas.getContext("2d") : null;
 // Tape
 const tapeBody = document.getElementById("tapeBody");
 
-// Ticket
+// Order Ticket
 const btnSideBuy = document.getElementById("btnSideBuy");
 const btnSideSell = document.getElementById("btnSideSell");
-const typeLimit = document.getElementById("typeLimit");
-const typeMarket = document.getElementById("typeMarket");
-const priceFieldWrapper = document.getElementById("priceFieldWrapper");
+const btnTypeLimit = document.getElementById("btnTypeLimit");
+const btnTypeMarket = document.getElementById("btnTypeMarket");
+const priceGroup = document.getElementById("priceGroup");
 const orderPrice = document.getElementById("orderPrice");
 const orderQty = document.getElementById("orderQty");
-const orderValueEstimate = document.getElementById("orderValueEstimate");
+const orderEstValue = document.getElementById("orderEstValue");
 const btnSubmitOrder = document.getElementById("btnSubmitOrder");
-const ticketStatus = document.getElementById("ticketStatus");
-
-// Latency Grid
-const latP50 = document.getElementById("latP50");
-const latP90 = document.getElementById("latP90");
-const latP95 = document.getElementById("latP95");
-const latP99 = document.getElementById("latP99");
-const latP999 = document.getElementById("latP999");
-const latMinMax = document.getElementById("latMinMax");
-const latAvg = document.getElementById("latAvg");
+const orderFeedback = document.getElementById("orderFeedback");
+const userOrdersList = document.getElementById("userOrdersList");
 
 // Footer
-const footerOccupancy = document.getElementById("footerOccupancy");
-const footerOrdersCount = document.getElementById("footerOrdersCount");
-const footerTradesCount = document.getElementById("footerTradesCount");
-const footerDroppedCount = document.getElementById("footerDroppedCount");
+const footerOrders = document.getElementById("footerOrders");
+const footerTrades = document.getElementById("footerTrades");
+const footerUptime = document.getElementById("footerUptime");
 
 
 // ==========================================================================
@@ -96,8 +93,8 @@ function connectWebSocket() {
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-        connectionStatus.className = "connection-pill";
-        connectionText.textContent = "CONNECTED";
+        wsStatus.className = "ws-pill connected";
+        wsStatusText.textContent = "LIVE";
     };
 
     ws.onmessage = (event) => {
@@ -112,129 +109,201 @@ function connectWebSocket() {
     };
 
     ws.onclose = () => {
-        connectionStatus.className = "connection-pill disconnected";
-        connectionText.textContent = "RECONNECTING";
+        wsStatus.className = "ws-pill disconnected";
+        wsStatusText.textContent = "OFFLINE";
         setTimeout(connectWebSocket, 1500);
     };
 
     ws.onerror = () => {
-        connectionStatus.className = "connection-pill disconnected";
-        connectionText.textContent = "DISCONNECTED";
+        wsStatus.className = "ws-pill disconnected";
+        wsStatusText.textContent = "ERROR";
         ws.close();
     };
 }
 
 
 // ==========================================================================
-// 2. TELEMETRY INGESTION & DISPATCH
+// 2. TELEMETRY HANDLER
 // ==========================================================================
 
 function handleTelemetry(data) {
     lastTelemetry = data;
 
-    // Header Meta
+    // Header Info
     if (data.backend) backendText.textContent = data.backend;
-    if (data.uptime !== undefined) uptimeVal.textContent = `${data.uptime.toFixed(1)}s`;
+    if (data.uptime !== undefined) footerUptime.textContent = `Uptime: ${data.uptime.toFixed(1)}s`;
 
     // Mid & Spread
-    const midPrice = data.mid_price !== null && data.mid_price !== undefined ? data.mid_price : 150.0;
-    const midStr = `$${midPrice.toFixed(2)}`;
-    tickerMid.textContent = midStr;
-    midVal.textContent = midStr;
+    const mid = data.mid_price !== null && data.mid_price !== undefined ? data.mid_price : 150.0;
+    const midStr = `$${mid.toFixed(2)}`;
+    statMid.textContent = midStr;
+    midPriceText.textContent = midStr;
 
     if (data.spread !== null && data.spread !== undefined) {
         const spStr = `$${data.spread.toFixed(2)}`;
-        tickerSpread.innerHTML = `${spStr} <span class="sub-ticks">(${data.spread_ticks} ticks)</span>`;
-        spreadVal.textContent = spStr;
-        spreadTicks.textContent = `(${data.spread_ticks} ticks)`;
+        statSpread.innerHTML = `${spStr} <span class="dim">(${data.spread_ticks} ticks)</span>`;
+        spreadText.textContent = spStr;
+        spreadTicksText.textContent = `(${data.spread_ticks} ticks)`;
     } else {
-        tickerSpread.innerHTML = `— <span class="sub-ticks">(—)</span>`;
-        spreadVal.textContent = "—";
-        spreadTicks.textContent = "(—)";
+        statSpread.innerHTML = `— <span class="dim">(—)</span>`;
+        spreadText.textContent = "—";
+        spreadTicksText.textContent = "(—)";
     }
 
-    if (data.total_volume !== undefined) {
-        tickerVol.textContent = `${data.total_volume.toLocaleString()} shs`;
-    }
-
-    // Quick Stats Toolbar
     if (data.latency) {
-        const l = data.latency;
-        statP50.textContent = `${l.p50_us.toFixed(2)} μs`;
-        statP99.textContent = `${l.p99_us.toFixed(2)} μs`;
-
-        latP50.textContent = `${l.p50_us.toFixed(2)} μs`;
-        latP90.textContent = `${l.p90_us.toFixed(2)} μs`;
-        latP95.textContent = `${l.p95_us.toFixed(2)} μs`;
-        latP99.textContent = `${l.p99_us.toFixed(2)} μs`;
-        latP999.textContent = `${(l.p99_9_us || 0).toFixed(2)} μs`;
-        latMinMax.textContent = `${l.min_us.toFixed(2)} / ${l.max_us.toFixed(2)} μs`;
-        latAvg.textContent = `${l.avg_us.toFixed(2)} μs`;
+        statP50.textContent = `${data.latency.p50_us.toFixed(2)} μs`;
     }
 
     if (data.throughput !== undefined) {
-        const rateFormatted = `${Math.round(data.throughput).toLocaleString()} ord/s`;
-        statThroughput.textContent = rateFormatted;
-        chipThroughput.textContent = rateFormatted;
+        statThroughput.textContent = `${Math.round(data.throughput).toLocaleString()} ord/s`;
+    }
+
+    if (data.total_volume !== undefined) {
+        statVolume.textContent = `${data.total_volume.toLocaleString()} shs`;
+    }
+
+    if (data.orders_processed !== undefined) {
+        chipOrdersTotal.textContent = `${data.orders_processed.toLocaleString()} orders`;
+        footerOrders.textContent = `Orders: ${data.orders_processed.toLocaleString()}`;
     }
 
     if (data.trades_executed !== undefined) {
-        chipTrades.textContent = `${data.trades_executed.toLocaleString()} fills`;
+        chipTradesTotal.textContent = `${data.trades_executed.toLocaleString()} fills`;
+        footerTrades.textContent = `Fills: ${data.trades_executed.toLocaleString()}`;
+    }
+
+    // Ring Buffer Hardware Telemetry
+    if (data.ring_buffer) {
+        const rb = data.ring_buffer;
+        ringMetaText.textContent = `${rb.occupancy.toLocaleString()} / ${rb.capacity.toLocaleString()} (${rb.pct.toFixed(1)}%)`;
+        ringProgressFill.style.width = `${Math.min(100, rb.pct)}%`;
+        ringDroppedText.textContent = `${rb.dropped.toLocaleString()} dropped`;
+    }
+
+    // Simulator State Sync
+    if (data.simulator) {
+        syncStreamUI(data.simulator.active);
     }
 
     // Render Order Book
     renderOrderBook(data.bids || [], data.asks || []);
 
-    // Render Active Tab Content
-    if (activeTab === "depth") {
+    // Render Tab Content
+    if (activeMainTab === "depth") {
         drawDepthChart(data.bids || [], data.asks || []);
-    } else if (activeTab === "tape") {
+    } else if (activeMainTab === "tape") {
         renderTradeTape(data.recent_trades || []);
-    } else if (activeTab === "latency") {
+    } else if (activeMainTab === "latency") {
         drawLatencyHistogram(data.latency);
     }
 
-    // Simulator State Sync
-    if (data.simulator) {
-        simActive = data.simulator.active;
-        if (simActive) {
-            btnStreamToggle.className = "btn btn-action active";
-            btnStreamToggle.innerHTML = `
-                <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="6" y="4" width="4" height="16"/>
-                    <rect x="14" y="4" width="4" height="16"/>
-                </svg>
-                <span>Pause Stream</span>
-            `;
-        } else {
-            btnStreamToggle.className = "btn btn-action";
-            btnStreamToggle.innerHTML = `
-                <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                <span>Start Stream</span>
-            `;
-        }
-    }
-
-    // Footer Metrics
-    if (data.ring_buffer) {
-        const rb = data.ring_buffer;
-        footerOccupancy.textContent = `Occupancy: ${rb.occupancy.toLocaleString()} (${rb.pct.toFixed(1)}%)`;
-        footerDroppedCount.textContent = `Dropped: ${rb.dropped.toLocaleString()}`;
-    }
-    if (data.orders_processed !== undefined) {
-        footerOrdersCount.textContent = `Processed: ${data.orders_processed.toLocaleString()} orders`;
-    }
-    if (data.trades_executed !== undefined) {
-        footerTradesCount.textContent = `Executed: ${data.trades_executed.toLocaleString()} trades`;
+    // Render Manual Orders History
+    if (data.user_orders) {
+        renderUserOrders(data.user_orders);
     }
 }
 
 
 // ==========================================================================
-// 3. LEVEL-2 DEPTH LADDER (DOM)
+// 3. STREAM CONTROLS (INDEPENDENT & INFALLIBLE)
 // ==========================================================================
+
+function syncStreamUI(isActive) {
+    simActive = isActive;
+    if (simActive) {
+        btnStreamToggle.className = "btn btn-stream-toggle stop-mode";
+        streamIcon.textContent = "■";
+        streamBtnText.textContent = "STOP STREAM";
+        streamBadge.className = "stream-status-badge streaming";
+        streamBadge.textContent = "STREAMING";
+    } else {
+        btnStreamToggle.className = "btn btn-stream-toggle start-mode";
+        streamIcon.textContent = "▶";
+        streamBtnText.textContent = "START STREAM";
+        streamBadge.className = "stream-status-badge paused";
+        streamBadge.textContent = "PAUSED";
+    }
+}
+
+async function toggleStream() {
+    // Immediately flip UI to give instant tactile feedback
+    const targetState = !simActive;
+    syncStreamUI(targetState);
+
+    try {
+        const endpoint = targetState ? "/api/simulator/start" : "/api/simulator/stop";
+        const resp = await fetch(endpoint, { method: "POST" });
+        const res = await resp.json();
+        syncStreamUI(res.active);
+        showFeedback(targetState ? "▶ Market order stream active." : "■ Market order stream paused.", "success-fill");
+    } catch (err) {
+        // Rollback if request failed
+        syncStreamUI(!targetState);
+        showFeedback(`Stream toggle failed: ${err.message}`, "error");
+    }
+}
+
+async function setStreamRate(rate) {
+    currentSimRate = rate;
+    document.querySelectorAll(".rate-chip").forEach(el => {
+        if (el.textContent.includes(`${rate / 1000}k`) || el.textContent === `${rate}/s`) {
+            el.className = "rate-chip active";
+        } else {
+            el.className = "rate-chip";
+        }
+    });
+
+    try {
+        await fetch("/api/simulator/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ active: simActive, rate: rate }),
+        });
+        showFeedback(`Stream rate set to ${rate.toLocaleString()} orders/sec.`, "success-resting");
+    } catch (err) {
+        console.error("Set rate error:", err);
+    }
+}
+
+async function fireBurst(count) {
+    try {
+        showFeedback(`Injecting burst of ${count.toLocaleString()} orders...`, "success-resting");
+        const resp = await fetch("/api/burst", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ count }),
+        });
+        const res = await resp.json();
+        showFeedback(`✓ Injected ${res.orders_fired.toLocaleString()} orders in ${res.elapsed_seconds}s (${res.write_throughput.toLocaleString()} ord/s)`, "success-fill");
+    } catch (err) {
+        showFeedback(`Burst error: ${err.message}`, "error");
+    }
+}
+
+async function resetEngine() {
+    try {
+        await fetch("/api/reset", { method: "POST" });
+        syncStreamUI(false);
+        showFeedback("✓ Order book, IPC buffer & telemetry reset.", "success-fill");
+    } catch (err) {
+        showFeedback(`Reset error: ${err.message}`, "error");
+    }
+}
+
+
+// ==========================================================================
+// 4. ORDER BOOK (DOM) & CLICK-TO-TRADE
+// ==========================================================================
+
+function setBookFilter(filter) {
+    currentBookFilter = filter;
+    document.getElementById("viewBoth").className = filter === "both" ? "tab-chip active" : "tab-chip";
+    document.getElementById("viewBids").className = filter === "bids" ? "tab-chip active" : "tab-chip";
+    document.getElementById("viewAsks").className = filter === "asks" ? "tab-chip active" : "tab-chip";
+
+    asksContainer.style.display = (filter === "both" || filter === "asks") ? "flex" : "none";
+    bidsContainer.style.display = (filter === "both" || filter === "bids") ? "flex" : "none";
+}
 
 function renderOrderBook(bids, asks) {
     let maxVolume = 1;
@@ -255,16 +324,16 @@ function renderOrderBook(bids, asks) {
     // Asks Ladder: Inverted so lowest ask (best ask) is at bottom
     const reversedAsks = [...askRows].reverse();
     if (reversedAsks.length === 0) {
-        asksContainer.innerHTML = `<div class="ladder-placeholder">No asks in book</div>`;
+        asksContainer.innerHTML = `<div class="empty-state">No asks resting in book</div>`;
     } else {
         asksContainer.innerHTML = reversedAsks.map(r => {
             const widthPct = Math.min(100, (r.total / maxVolume) * 100);
             return `
-                <div class="ladder-row" onclick="fillPrice(${r.price})">
-                    <div class="bar" style="width: ${widthPct}%"></div>
-                    <span class="row-price">${r.price.toFixed(2)}</span>
-                    <span class="row-size">${r.qty.toLocaleString()}</span>
-                    <span class="row-total">${r.total.toLocaleString()}</span>
+                <div class="ladder-row" onclick="choosePrice(${r.price}, ${r.qty})" title="Click to trade @ $${r.price.toFixed(2)}">
+                    <div class="row-bar" style="width: ${widthPct}%"></div>
+                    <span class="cell-price">$${r.price.toFixed(2)}</span>
+                    <span class="cell-size">${r.qty.toLocaleString()}</span>
+                    <span class="cell-total">${r.total.toLocaleString()}</span>
                 </div>
             `;
         }).join("");
@@ -272,57 +341,208 @@ function renderOrderBook(bids, asks) {
 
     // Bids Ladder: Highest bid (best bid) at top
     if (bidRows.length === 0) {
-        bidsContainer.innerHTML = `<div class="ladder-placeholder">No bids in book</div>`;
+        bidsContainer.innerHTML = `<div class="empty-state">No bids resting in book</div>`;
     } else {
         bidsContainer.innerHTML = bidRows.map(r => {
             const widthPct = Math.min(100, (r.total / maxVolume) * 100);
             return `
-                <div class="ladder-row" onclick="fillPrice(${r.price})">
-                    <div class="bar" style="width: ${widthPct}%"></div>
-                    <span class="row-price">${r.price.toFixed(2)}</span>
-                    <span class="row-size">${r.qty.toLocaleString()}</span>
-                    <span class="row-total">${r.total.toLocaleString()}</span>
+                <div class="ladder-row" onclick="choosePrice(${r.price}, ${r.qty})" title="Click to trade @ $${r.price.toFixed(2)}">
+                    <div class="row-bar" style="width: ${widthPct}%"></div>
+                    <span class="cell-price">$${r.price.toFixed(2)}</span>
+                    <span class="cell-size">${r.qty.toLocaleString()}</span>
+                    <span class="cell-total">${r.total.toLocaleString()}</span>
                 </div>
             `;
         }).join("");
     }
 }
 
-
-// ==========================================================================
-// 4. TIME & SALES TAPE
-// ==========================================================================
-
-function renderTradeTape(trades) {
-    if (!trades || trades.length === 0) {
-        tapeBody.innerHTML = `<div class="tape-empty">No trade fills recorded yet.</div>`;
-        return;
-    }
-
-    const html = trades.slice(0, 30).map(t => {
-        const d = new Date(t.timestamp_ns / 1_000_000);
-        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${(t.timestamp_ns % 1_000_000_000 / 1_000_000).toFixed(0).padStart(3, '0')}`;
-        const isBuy = t.trade_id % 2 === 0;
-
-        return `
-            <div class="tape-row">
-                <span class="tape-time">${timeStr}</span>
-                <span class="${isBuy ? 'tape-side-buy' : 'tape-side-sell'}">${isBuy ? 'BUY' : 'SELL'}</span>
-                <span class="tape-price">$${t.price.toFixed(2)}</span>
-                <span class="tape-qty">${t.qty.toLocaleString()}</span>
-                <span class="tape-id">#${t.maker_order_id}</span>
-                <span class="tape-id">#${t.taker_order_id}</span>
-            </div>
-        `;
-    }).join("");
-
-    tapeBody.innerHTML = html;
+/**
+ * Click-to-Trade: Snaps clicked price into ticket instantly without typing!
+ */
+function choosePrice(price, qty) {
+    orderPrice.value = price.toFixed(2);
+    updateEstimate();
+    showFeedback(`Selected price $${price.toFixed(2)} from Order Book.`, "success-resting");
 }
 
 
 // ==========================================================================
-// 5. CANVAS CHARTS (MARKET DEPTH & LATENCY HISTOGRAM)
+// 5. INTERACTIVE ORDER TICKET
 // ==========================================================================
+
+function setSide(side) {
+    currentSide = side;
+    if (side === "BUY") {
+        btnSideBuy.className = "side-btn buy active";
+        btnSideSell.className = "side-btn sell";
+        btnSubmitOrder.className = "btn btn-submit-order buy";
+    } else {
+        btnSideBuy.className = "side-btn buy";
+        btnSideSell.className = "side-btn sell active";
+        btnSubmitOrder.className = "btn btn-submit-order sell";
+    }
+    updateEstimate();
+}
+
+function setOrderType(type) {
+    currentOrderType = type;
+    if (type === "LIMIT") {
+        btnTypeLimit.className = "type-btn active";
+        btnTypeMarket.className = "type-btn";
+        priceGroup.style.display = "flex";
+    } else {
+        btnTypeLimit.className = "type-btn";
+        btnTypeMarket.className = "type-btn active";
+        priceGroup.style.display = "none";
+    }
+    updateEstimate();
+}
+
+function stepPrice(delta) {
+    let cur = parseFloat(orderPrice.value) || 150.0;
+    cur = Math.max(0.01, cur + delta);
+    orderPrice.value = cur.toFixed(2);
+    updateEstimate();
+}
+
+function snapPrice(target) {
+    if (!lastTelemetry) return;
+    let price = 150.0;
+    if (target === "bid" && lastTelemetry.best_bid) {
+        price = lastTelemetry.best_bid;
+    } else if (target === "ask" && lastTelemetry.best_ask) {
+        price = lastTelemetry.best_ask;
+    } else if (target === "mid" && lastTelemetry.mid_price) {
+        price = lastTelemetry.mid_price;
+    }
+    orderPrice.value = price.toFixed(2);
+    updateEstimate();
+    showFeedback(`Snapped price to ${target.toUpperCase()}: $${price.toFixed(2)}`, "success-resting");
+}
+
+function stepQty(delta) {
+    const cur = parseInt(orderQty.value, 10) || 100;
+    orderQty.value = Math.max(1, cur + delta);
+    updateEstimate();
+}
+
+function setQty(qty) {
+    orderQty.value = qty;
+    updateEstimate();
+}
+
+function updateEstimate() {
+    const qty = parseInt(orderQty.value, 10) || 0;
+    let price = parseFloat(orderPrice.value) || 150.0;
+
+    if (currentOrderType === "MARKET" && lastTelemetry && lastTelemetry.mid_price) {
+        price = lastTelemetry.mid_price;
+    }
+
+    const totalVal = price * qty;
+    orderEstValue.textContent = `$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const actionText = currentSide === "BUY" ? "BUY" : "SELL";
+    const typeText = currentOrderType === "LIMIT" ? "LIMIT" : "MARKET";
+    btnSubmitOrder.textContent = `PLACE ${actionText} ${typeText} ($${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+}
+
+async function submitOrder() {
+    const qty = parseInt(orderQty.value, 10);
+    let price = parseFloat(orderPrice.value);
+
+    if (isNaN(qty) || qty <= 0) {
+        showFeedback("Please enter a valid share quantity (e.g. 100)", "error");
+        return;
+    }
+
+    if (currentOrderType === "LIMIT" && (isNaN(price) || price <= 0)) {
+        showFeedback("Please select a valid limit price (e.g. 150.25)", "error");
+        return;
+    }
+
+    if (currentOrderType === "MARKET") {
+        price = currentSide === "BUY" ? 99999.0 : 0.01;
+    }
+
+    showFeedback(`Routing ${currentSide} ${qty} shs @ $${price.toFixed(2)}...`, "success-resting");
+
+    try {
+        const resp = await fetch("/api/order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                side: currentSide,
+                price: price,
+                qty: qty,
+                order_type: currentOrderType,
+            }),
+        });
+
+        const res = await resp.json();
+        if (res.success) {
+            if (res.status === "FILLED") {
+                showFeedback(`✓ ${res.message}`, "success-fill");
+            } else {
+                showFeedback(`✓ ${res.message}`, "success-resting");
+            }
+        } else {
+            showFeedback(`Order error: ${res.message || "Failed"}`, "error");
+        }
+    } catch (err) {
+        showFeedback(`Order submission failed: ${err.message}`, "error");
+    }
+}
+
+function showFeedback(msg, styleClass) {
+    orderFeedback.className = `feedback-banner ${styleClass || ""}`;
+    orderFeedback.textContent = msg;
+}
+
+function renderUserOrders(orders) {
+    if (!orders || orders.length === 0) {
+        userOrdersList.innerHTML = `<div class="history-empty">No manual orders placed yet.</div>`;
+        return;
+    }
+
+    userOrdersList.innerHTML = orders.map(o => {
+        const isBuy = o.side === "BUY";
+        const isFilled = o.status === "FILLED";
+        return `
+            <div class="history-item">
+                <div class="hist-left">
+                    <span class="hist-side ${isBuy ? 'buy' : 'sell'}">${o.side}</span>
+                    <span class="hist-price">$${o.price.toFixed(2)}</span>
+                    <span class="hist-qty">(${o.qty} shs)</span>
+                </div>
+                <span class="hist-status ${isFilled ? 'filled' : 'resting'}">${o.status}</span>
+            </div>
+        `;
+    }).join("");
+}
+
+
+// ==========================================================================
+// 6. CENTER TABS & VISUALIZERS
+// ==========================================================================
+
+function switchMainTab(tab) {
+    activeMainTab = tab;
+    tabDepth.className = tab === "depth" ? "seg-tab active" : "seg-tab";
+    tabTape.className = tab === "tape" ? "seg-tab active" : "seg-tab";
+    tabLatency.className = tab === "latency" ? "seg-tab active" : "seg-tab";
+
+    paneDepth.className = tab === "depth" ? "tab-content active" : "tab-content";
+    paneTape.className = tab === "tape" ? "tab-content active" : "tab-content";
+    paneLatency.className = tab === "latency" ? "tab-content active" : "tab-content";
+
+    if (lastTelemetry) {
+        if (tab === "depth") drawDepthChart(lastTelemetry.bids, lastTelemetry.asks);
+        else if (tab === "tape") renderTradeTape(lastTelemetry.recent_trades);
+        else if (tab === "latency") drawLatencyHistogram(lastTelemetry.latency);
+    }
+}
 
 function drawDepthChart(bids, asks) {
     if (!depthCtx) return;
@@ -331,7 +551,7 @@ function drawDepthChart(bids, asks) {
 
     depthCtx.clearRect(0, 0, w, h);
 
-    // Subtle background grid
+    // Subtle background grid lines
     depthCtx.strokeStyle = "rgba(255, 255, 255, 0.03)";
     depthCtx.lineWidth = 1;
     for (let y = 40; y < h; y += 50) {
@@ -345,11 +565,10 @@ function drawDepthChart(bids, asks) {
         depthCtx.fillStyle = "#64748b";
         depthCtx.font = "12px Inter, sans-serif";
         depthCtx.textAlign = "center";
-        depthCtx.fillText("No order book depth to display", w / 2, h / 2);
+        depthCtx.fillText("Waiting for order depth data...", w / 2, h / 2);
         return;
     }
 
-    // Cumulative calculations
     let cumBids = [];
     let bTotal = 0;
     for (let i = 0; i < bids.length; i++) {
@@ -367,69 +586,69 @@ function drawDepthChart(bids, asks) {
     const maxVol = Math.max(bTotal, aTotal, 1);
     const midX = w / 2;
 
-    // 1. Draw Bid Cumulative Polygon (Green, Left Side)
+    // Green Cumulative Bids (Left Polygon)
     if (cumBids.length > 0) {
         depthCtx.beginPath();
-        depthCtx.moveTo(midX, h - 20);
+        depthCtx.moveTo(midX, h - 25);
 
         for (let i = 0; i < cumBids.length; i++) {
             const x = midX - ((i + 1) / cumBids.length) * (midX - 25);
-            const y = (h - 25) - (cumBids[i].cum / maxVol) * (h - 60);
+            const y = (h - 25) - (cumBids[i].cum / maxVol) * (h - 70);
             depthCtx.lineTo(x, y);
         }
 
         const lastX = midX - (midX - 25);
-        depthCtx.lineTo(lastX, h - 20);
+        depthCtx.lineTo(lastX, h - 25);
         depthCtx.closePath();
 
         const bidGrad = depthCtx.createLinearGradient(0, 0, 0, h);
-        bidGrad.addColorStop(0, "rgba(16, 185, 129, 0.25)");
-        bidGrad.addColorStop(1, "rgba(16, 185, 129, 0.02)");
+        bidGrad.addColorStop(0, "rgba(0, 230, 118, 0.35)");
+        bidGrad.addColorStop(1, "rgba(0, 230, 118, 0.02)");
         depthCtx.fillStyle = bidGrad;
         depthCtx.fill();
 
-        depthCtx.strokeStyle = "#10b981";
-        depthCtx.lineWidth = 1.5;
+        depthCtx.strokeStyle = "#00e676";
+        depthCtx.lineWidth = 2;
         depthCtx.stroke();
     }
 
-    // 2. Draw Ask Cumulative Polygon (Red, Right Side)
+    // Red Cumulative Asks (Right Polygon)
     if (cumAsks.length > 0) {
         depthCtx.beginPath();
-        depthCtx.moveTo(midX, h - 20);
+        depthCtx.moveTo(midX, h - 25);
 
         for (let i = 0; i < cumAsks.length; i++) {
             const x = midX + ((i + 1) / cumAsks.length) * (midX - 25);
-            const y = (h - 25) - (cumAsks[i].cum / maxVol) * (h - 60);
+            const y = (h - 25) - (cumAsks[i].cum / maxVol) * (h - 70);
             depthCtx.lineTo(x, y);
         }
 
         const lastX = midX + (midX - 25);
-        depthCtx.lineTo(lastX, h - 20);
+        depthCtx.lineTo(lastX, h - 25);
         depthCtx.closePath();
 
         const askGrad = depthCtx.createLinearGradient(0, 0, 0, h);
-        askGrad.addColorStop(0, "rgba(244, 63, 94, 0.25)");
-        askGrad.addColorStop(1, "rgba(244, 63, 94, 0.02)");
+        askGrad.addColorStop(0, "rgba(255, 51, 102, 0.35)");
+        askGrad.addColorStop(1, "rgba(255, 51, 102, 0.02)");
         depthCtx.fillStyle = askGrad;
         depthCtx.fill();
 
-        depthCtx.strokeStyle = "#f43f5e";
-        depthCtx.lineWidth = 1.5;
+        depthCtx.strokeStyle = "#ff3366";
+        depthCtx.lineWidth = 2;
         depthCtx.stroke();
     }
 
-    // Midline Marker
-    depthCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-    depthCtx.setLineDash([3, 3]);
+    // Dashed Mid-Price Divider
+    depthCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    depthCtx.setLineDash([4, 4]);
     depthCtx.beginPath();
     depthCtx.moveTo(midX, 20);
-    depthCtx.lineTo(midX, h - 20);
+    depthCtx.lineTo(midX, h - 25);
     depthCtx.stroke();
     depthCtx.setLineDash([]);
 
-    // Axis Labels
-    depthCtx.fillStyle = "#64748b";
+    // Text labels
+    depthCtx.fillStyle = "#94a3b8";
     depthCtx.font = "10.5px JetBrains Mono, monospace";
     depthCtx.textAlign = "left";
     depthCtx.fillText("BIDS (Cumulative)", 25, 25);
@@ -455,26 +674,25 @@ function drawLatencyHistogram(stats) {
     ];
 
     const maxVal = Math.max(...values, 2.0);
-    const barWidth = 48;
+    const barWidth = 52;
     const gap = (w - (labels.length * barWidth)) / (labels.length + 1);
 
     for (let i = 0; i < labels.length; i++) {
         const x = gap + i * (barWidth + gap);
-        const barHeight = Math.max(6, (values[i] / maxVal) * (h - 70));
+        const barHeight = Math.max(8, (values[i] / maxVal) * (h - 75));
         const y = h - 35 - barHeight;
 
-        // Clean subtle fill
-        latencyCtx.fillStyle = i <= 1 ? "rgba(56, 189, 248, 0.35)" : (i <= 4 ? "rgba(16, 185, 129, 0.35)" : "rgba(251, 191, 36, 0.35)");
+        // Clean bars
+        latencyCtx.fillStyle = i <= 1 ? "rgba(56, 189, 248, 0.4)" : (i <= 4 ? "rgba(0, 230, 118, 0.4)" : "rgba(251, 191, 36, 0.4)");
         latencyCtx.fillRect(x, y, barWidth, barHeight);
 
-        // Border
-        latencyCtx.strokeStyle = i <= 1 ? "#38bdf8" : (i <= 4 ? "#10b981" : "#fbbf24");
-        latencyCtx.lineWidth = 1;
+        latencyCtx.strokeStyle = i <= 1 ? "#38bdf8" : (i <= 4 ? "#00e676" : "#fbbf24");
+        latencyCtx.lineWidth = 1.5;
         latencyCtx.strokeRect(x, y, barWidth, barHeight);
 
         // Value text
         latencyCtx.fillStyle = "#f8fafc";
-        latencyCtx.font = "10.5px JetBrains Mono, monospace";
+        latencyCtx.font = "11px JetBrains Mono, monospace";
         latencyCtx.textAlign = "center";
         latencyCtx.fillText(`${values[i].toFixed(2)}μs`, x + barWidth / 2, y - 6);
 
@@ -485,202 +703,38 @@ function drawLatencyHistogram(stats) {
     }
 }
 
-
-// ==========================================================================
-// 6. TAB CONTROLLER
-// ==========================================================================
-
-function switchTab(tab) {
-    activeTab = tab;
-    tabDepth.className = tab === "depth" ? "seg-btn active" : "seg-btn";
-    tabTape.className = tab === "tape" ? "seg-btn active" : "seg-btn";
-    tabLatency.className = tab === "latency" ? "seg-btn active" : "seg-btn";
-
-    paneDepth.className = tab === "depth" ? "tab-pane active" : "tab-pane";
-    paneTape.className = tab === "tape" ? "tab-pane active" : "tab-pane";
-    paneLatency.className = tab === "latency" ? "tab-pane active" : "tab-pane";
-
-    if (lastTelemetry) {
-        if (tab === "depth") drawDepthChart(lastTelemetry.bids, lastTelemetry.asks);
-        else if (tab === "tape") renderTradeTape(lastTelemetry.recent_trades);
-        else if (tab === "latency") drawLatencyHistogram(lastTelemetry.latency);
-    }
-}
-
-
-// ==========================================================================
-// 7. FIREHOSE SIMULATOR REST ACTIONS
-// ==========================================================================
-
-async function fireBurst(count) {
-    try {
-        ticketStatus.textContent = `Injecting ${count.toLocaleString()} orders into IPC...`;
-        const resp = await fetch("/api/burst", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ count }),
-        });
-        const res = await resp.json();
-        ticketStatus.textContent = `✓ Injected ${res.orders_fired.toLocaleString()} orders in ${res.elapsed_seconds}s (${res.write_throughput.toLocaleString()} ord/s)`;
-        setTimeout(() => { ticketStatus.textContent = ""; }, 3500);
-    } catch (err) {
-        ticketStatus.textContent = `Burst error: ${err.message}`;
-    }
-}
-
-async function toggleStream() {
-    try {
-        simActive = !simActive;
-        const rate = parseInt(rateSlider.value, 10);
-        await fetch("/api/simulator/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ active: simActive, rate }),
-        });
-    } catch (err) {
-        console.error("Stream toggle failed:", err);
-    }
-}
-
-rateSlider.addEventListener("input", (e) => {
-    const val = parseInt(e.target.value, 10);
-    rateDisplay.textContent = `${val.toLocaleString()} /s`;
-});
-
-rateSlider.addEventListener("change", async (e) => {
-    const val = parseInt(e.target.value, 10);
-    if (simActive) {
-        await fetch("/api/simulator/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ active: true, rate: val }),
-        });
-    }
-});
-
-async function resetEngine() {
-    try {
-        await fetch("/api/reset", { method: "POST" });
-        ticketStatus.textContent = "✓ Order book and buffer cleared";
-        setTimeout(() => { ticketStatus.textContent = ""; }, 2500);
-    } catch (err) {
-        ticketStatus.textContent = `Reset failed: ${err.message}`;
-    }
-}
-
-
-// ==========================================================================
-// 8. INTERACTIVE ORDER ENTRY TICKET
-// ==========================================================================
-
-function setSide(side) {
-    currentSide = side;
-    if (side === "BUY") {
-        btnSideBuy.className = "side-tab buy active";
-        btnSideSell.className = "side-tab sell";
-        btnSubmitOrder.className = "btn btn-submit-trade buy";
-        btnSubmitOrder.textContent = currentType === "LIMIT" ? "Place Buy Order" : "Market Buy";
-    } else {
-        btnSideBuy.className = "side-tab buy";
-        btnSideSell.className = "side-tab sell active";
-        btnSubmitOrder.className = "btn btn-submit-trade sell";
-        btnSubmitOrder.textContent = currentType === "LIMIT" ? "Place Sell Order" : "Market Sell";
-    }
-}
-
-function setType(type) {
-    currentType = type;
-    if (type === "LIMIT") {
-        typeLimit.className = "type-btn active";
-        typeMarket.className = "type-btn";
-        priceFieldWrapper.style.display = "flex";
-        btnSubmitOrder.textContent = currentSide === "BUY" ? "Place Buy Order" : "Place Sell Order";
-    } else {
-        typeLimit.className = "type-btn";
-        typeMarket.className = "type-btn active";
-        priceFieldWrapper.style.display = "none";
-        btnSubmitOrder.textContent = currentSide === "BUY" ? "Market Buy" : "Market Sell";
-    }
-    updateOrderEstimate();
-}
-
-function stepPrice(delta) {
-    const cur = parseFloat(orderPrice.value) || 150.0;
-    orderPrice.value = (Math.max(0.01, cur + delta)).toFixed(2);
-    updateOrderEstimate();
-}
-
-function stepQty(delta) {
-    const cur = parseInt(orderQty.value, 10) || 100;
-    orderQty.value = Math.max(1, cur + delta);
-    updateOrderEstimate();
-}
-
-function setQty(qty) {
-    orderQty.value = qty;
-    updateOrderEstimate();
-}
-
-function fillPrice(price) {
-    orderPrice.value = price.toFixed(2);
-    updateOrderEstimate();
-}
-
-function updateOrderEstimate() {
-    const qty = parseInt(orderQty.value, 10) || 0;
-    let price = parseFloat(orderPrice.value) || 150.0;
-    if (currentType === "MARKET" && lastTelemetry && lastTelemetry.mid_price) {
-        price = lastTelemetry.mid_price;
-    }
-    const val = price * qty;
-    orderValueEstimate.textContent = `$${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-async function submitManualOrder(event) {
-    event.preventDefault();
-    const qty = parseInt(orderQty.value, 10);
-    let price = parseFloat(orderPrice.value);
-
-    if (currentType === "MARKET") {
-        price = currentSide === "BUY" ? 99999.0 : 0.01;
-    }
-
-    if (isNaN(price) || price <= 0 || isNaN(qty) || qty <= 0) {
-        ticketStatus.textContent = "Invalid order parameters";
+function renderTradeTape(trades) {
+    if (!trades || trades.length === 0) {
+        tapeBody.innerHTML = `<div class="tape-placeholder">No fills yet. Fire an order burst to see real-time trade tape.</div>`;
         return;
     }
 
-    try {
-        ticketStatus.textContent = `Routing ${currentSide} ${qty} @ $${price.toFixed(2)} to memory map...`;
-        const resp = await fetch("/api/order", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                side: currentSide,
-                price: price,
-                qty: qty,
-            }),
-        });
+    tapeBody.innerHTML = trades.slice(0, 30).map(t => {
+        const d = new Date(t.timestamp_ns / 1_000_000);
+        const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${(t.timestamp_ns % 1_000_000_000 / 1_000_000).toFixed(0).padStart(3, '0')}`;
+        const isBuy = t.trade_id % 2 === 0;
 
-        const res = await resp.json();
-        if (res.success) {
-            ticketStatus.textContent = `✓ Order #${res.order_id} filled/queued in IPC`;
-        } else {
-            ticketStatus.textContent = "⚠ Buffer saturated, dropped";
-        }
-        setTimeout(() => { ticketStatus.textContent = ""; }, 3000);
-    } catch (err) {
-        ticketStatus.textContent = `Submission failed: ${err.message}`;
-    }
+        return `
+            <div class="tape-item">
+                <span class="tape-time">${timeStr}</span>
+                <span class="${isBuy ? 'tape-badge-buy' : 'tape-badge-sell'}">${isBuy ? 'BUY' : 'SELL'}</span>
+                <span class="tape-price">$${t.price.toFixed(2)}</span>
+                <span class="tape-qty">${t.qty.toLocaleString()}</span>
+                <span class="tape-oid">#${t.maker_order_id}</span>
+                <span class="tape-oid">#${t.taker_order_id}</span>
+            </div>
+        `;
+    }).join("");
 }
 
 
 // ==========================================================================
-// 9. INITIALIZATION
+// 7. INITIALIZATION
 // ==========================================================================
 window.addEventListener("DOMContentLoaded", () => {
     setSide("BUY");
-    setType("LIMIT");
-    updateOrderEstimate();
+    setOrderType("LIMIT");
+    updateEstimate();
+    syncStreamUI(false);
     connectWebSocket();
 });

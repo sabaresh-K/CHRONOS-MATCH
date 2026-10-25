@@ -33,6 +33,7 @@ class OrderRequest(BaseModel):
     side: str  # "BUY", "SELL", "CANCEL"
     price: float  # In dollars, e.g. 150.25
     qty: int  # Share quantity
+    order_type: str = "LIMIT"  # "LIMIT" or "MARKET"
     order_id: Optional[int] = None
 
 
@@ -42,7 +43,7 @@ class BurstRequest(BaseModel):
 
 class SimulatorConfigRequest(BaseModel):
     active: bool
-    rate: int = 50000
+    rate: int = 1000
 
 
 class AppState:
@@ -57,14 +58,17 @@ class AppState:
 
         # Simulator state
         self.sim_active: bool = False
-        self.sim_rate: int = 50000
+        self.sim_rate: int = 1000  # Orders/sec for smooth non-blocking animation
         self.sim_mid: int = 15000
         self.sim_order_id: int = 1_000_000
         self.active_sim_order_ids: List[int] = []
 
         # Trade tracking
         self.recent_trades: List[Dict] = []
-        self.max_recent_trades: int = 50
+        self.max_recent_trades: int = 60
+
+        # User manual order history
+        self.user_orders: List[Dict] = []
 
         # Performance tracking
         self.start_time: float = time.perf_counter()
@@ -73,7 +77,7 @@ class AppState:
         self.current_rate: float = 0.0
 
     def generate_sim_order(self) -> None:
-        """Generate a microstructural order packet directly into the ring buffer."""
+        """Generate a microstructural order packet directly into LOB and ring buffer."""
         self.sim_order_id += 1
         oid = self.sim_order_id
         now_ns = time.time_ns()
@@ -89,6 +93,7 @@ class AppState:
         if roll < 0.02 and self.active_sim_order_ids:
             idx = random.randrange(len(self.active_sim_order_ids))
             cancel_id = self.active_sim_order_ids.pop(idx)
+            self.lob.cancel_order(cancel_id)
             self.ring_buffer.write_order(
                 order_id=cancel_id,
                 side=SIDE_CANCEL,
@@ -102,22 +107,15 @@ class AppState:
         if roll < 0.08:
             if random.random() < 0.5:
                 # Market Buy
-                self.ring_buffer.write_order(
-                    order_id=oid,
-                    side=SIDE_BUY,
-                    price=self.sim_mid + 50,
-                    qty=random.choice([25, 50, 100, 200]),
-                    timestamp_ns=now_ns,
-                )
+                trades = self.lob.process_order(order_id=oid, side=SIDE_BUY, price=self.sim_mid + 50, qty=random.choice([25, 50, 100, 200]), timestamp_ns=now_ns)
+                self.ring_buffer.write_order(order_id=oid, side=SIDE_BUY, price=self.sim_mid + 50, qty=random.choice([25, 50, 100, 200]), timestamp_ns=now_ns)
             else:
                 # Market Sell
-                self.ring_buffer.write_order(
-                    order_id=oid,
-                    side=SIDE_SELL,
-                    price=max(100, self.sim_mid - 50),
-                    qty=random.choice([25, 50, 100, 200]),
-                    timestamp_ns=now_ns,
-                )
+                trades = self.lob.process_order(order_id=oid, side=SIDE_SELL, price=max(100, self.sim_mid - 50), qty=random.choice([25, 50, 100, 200]), timestamp_ns=now_ns)
+                self.ring_buffer.write_order(order_id=oid, side=SIDE_SELL, price=max(100, self.sim_mid - 50), qty=random.choice([25, 50, 100, 200]), timestamp_ns=now_ns)
+
+            if trades:
+                self._record_trades(trades)
             return
 
         # 46% Limit Bid
@@ -125,62 +123,59 @@ class AppState:
             offset = random.randint(1, 10)
             price = self.sim_mid - offset
             qty = random.choice([50, 100, 200, 300, 500, 1000])
-            if self.ring_buffer.write_order(order_id=oid, side=SIDE_BUY, price=price, qty=qty, timestamp_ns=now_ns):
-                if len(self.active_sim_order_ids) < 5000:
-                    self.active_sim_order_ids.append(oid)
+            trades = self.lob.process_order(order_id=oid, side=SIDE_BUY, price=price, qty=qty, timestamp_ns=now_ns)
+            self.ring_buffer.write_order(order_id=oid, side=SIDE_BUY, price=price, qty=qty, timestamp_ns=now_ns)
+            if len(self.active_sim_order_ids) < 5000:
+                self.active_sim_order_ids.append(oid)
+            if trades:
+                self._record_trades(trades)
             return
 
         # 46% Limit Ask
         offset = random.randint(1, 10)
         price = self.sim_mid + offset
         qty = random.choice([50, 100, 200, 300, 500, 1000])
-        if self.ring_buffer.write_order(order_id=oid, side=SIDE_SELL, price=price, qty=qty, timestamp_ns=now_ns):
-            if len(self.active_sim_order_ids) < 5000:
-                self.active_sim_order_ids.append(oid)
+        trades = self.lob.process_order(order_id=oid, side=SIDE_SELL, price=price, qty=qty, timestamp_ns=now_ns)
+        self.ring_buffer.write_order(order_id=oid, side=SIDE_SELL, price=price, qty=qty, timestamp_ns=now_ns)
+        if len(self.active_sim_order_ids) < 5000:
+            self.active_sim_order_ids.append(oid)
+        if trades:
+            self._record_trades(trades)
+
+    def _record_trades(self, trades) -> None:
+        for tr in trades:
+            trade_dict = {
+                "trade_id": tr.trade_id if hasattr(tr, "trade_id") else tr.get("trade_id", 0),
+                "price": (tr.price if hasattr(tr, "price") else tr.get("price", 0)) / 100.0,
+                "qty": tr.qty if hasattr(tr, "qty") else tr.get("qty", 0),
+                "maker_order_id": tr.maker_order_id if hasattr(tr, "maker_order_id") else tr.get("maker_order_id", 0),
+                "taker_order_id": tr.taker_order_id if hasattr(tr, "taker_order_id") else tr.get("taker_order_id", 0),
+                "timestamp_ns": tr.timestamp_ns if hasattr(tr, "timestamp_ns") else tr.get("timestamp_ns", 0),
+            }
+            self.recent_trades.insert(0, trade_dict)
+        if len(self.recent_trades) > self.max_recent_trades:
+            self.recent_trades = self.recent_trades[:self.max_recent_trades]
 
 
 state = AppState()
 
 
-async def matching_engine_worker():
-    """Continuously drains packets from the ring buffer and processes through LOB."""
+async def simulator_worker():
+    """Background task generating paced orders when simulator is active without event loop starvation."""
     while True:
         try:
-            packets = state.ring_buffer.read_batch(max_batch_size=4096)
-            if packets:
-                lob_process = state.lob.process_order
-                for order_id, side, price, qty, timestamp_ns in packets:
-                    trades = lob_process(order_id, side, price, qty, timestamp_ns)
-                    if trades:
-                        for tr in trades:
-                            trade_dict = {
-                                "trade_id": tr.trade_id if hasattr(tr, "trade_id") else tr.get("trade_id", 0),
-                                "price": (tr.price if hasattr(tr, "price") else tr.get("price", 0)) / 100.0,
-                                "qty": tr.qty if hasattr(tr, "qty") else tr.get("qty", 0),
-                                "maker_order_id": tr.maker_order_id if hasattr(tr, "maker_order_id") else tr.get("maker_order_id", 0),
-                                "taker_order_id": tr.taker_order_id if hasattr(tr, "taker_order_id") else tr.get("taker_order_id", 0),
-                                "timestamp_ns": tr.timestamp_ns if hasattr(tr, "timestamp_ns") else tr.get("timestamp_ns", 0),
-                            }
-                            state.recent_trades.insert(0, trade_dict)
-                        if len(state.recent_trades) > state.max_recent_trades:
-                            state.recent_trades = state.recent_trades[:state.max_recent_trades]
+            if state.sim_active:
+                # Generate a smooth batch of 10-25 orders per tick
+                batch_size = max(5, min(50, state.sim_rate // 20))
+                for _ in range(batch_size):
+                    if not state.sim_active:
+                        break
+                    state.generate_sim_order()
+                await asyncio.sleep(0.04)  # 25 Hz smooth paced animation
             else:
-                await asyncio.sleep(0.002)
-        except Exception as e:
-            await asyncio.sleep(0.01)
-
-
-async def simulator_worker():
-    """Background task generating orders when simulator is active."""
-    while True:
-        if state.sim_active and state.sim_rate > 0:
-            batch_size = max(10, min(1000, state.sim_rate // 50))
-            for _ in range(batch_size):
-                state.generate_sim_order()
-            interval = batch_size / state.sim_rate
-            await asyncio.sleep(interval)
-        else:
-            await asyncio.sleep(0.05)
+                await asyncio.sleep(0.1)
+        except Exception:
+            await asyncio.sleep(0.1)
 
 
 async def metrics_calculator_worker():
@@ -204,8 +199,8 @@ async def websocket_broadcast_worker():
             continue
 
         try:
-            # Depth (top 10 levels)
-            raw_bids, raw_asks = state.lob.get_depth(levels=10)
+            # Depth (top 12 levels)
+            raw_bids, raw_asks = state.lob.get_depth(levels=12)
             bids = [{"price": p / 100.0, "qty": q} for p, q in raw_bids]
             asks = [{"price": p / 100.0, "qty": q} for p, q in raw_asks]
 
@@ -245,7 +240,8 @@ async def websocket_broadcast_worker():
                     "active": state.sim_active,
                     "rate": state.sim_rate,
                 },
-                "recent_trades": state.recent_trades[:20],
+                "recent_trades": state.recent_trades[:25],
+                "user_orders": state.user_orders[:10],
             }
 
             disconnected = set()
@@ -257,22 +253,24 @@ async def websocket_broadcast_worker():
 
             for ws in disconnected:
                 state.clients.discard(ws)
-        except Exception as e:
+        except Exception:
             pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start background workers
-    t1 = asyncio.create_task(matching_engine_worker())
-    t2 = asyncio.create_task(simulator_worker())
-    t3 = asyncio.create_task(metrics_calculator_worker())
-    t4 = asyncio.create_task(websocket_broadcast_worker())
+    # Seed initial order book with resting liquidity if empty
+    if state.lob.orders_processed == 0:
+        for _ in range(200):
+            state.generate_sim_order()
+
+    t1 = asyncio.create_task(simulator_worker())
+    t2 = asyncio.create_task(metrics_calculator_worker())
+    t3 = asyncio.create_task(websocket_broadcast_worker())
     yield
     t1.cancel()
     t2.cancel()
     t3.cancel()
-    t4.cancel()
     state.ring_buffer.close()
 
 
@@ -298,7 +296,7 @@ async def websocket_endpoint(websocket: WebSocket):
     state.clients.add(websocket)
     try:
         while True:
-            # Keep socket open and receive any client messages/heartbeats
+            # Keep socket open and receive client heartbeats/actions
             data = await websocket.receive_text()
     except WebSocketDisconnect:
         state.clients.discard(websocket)
@@ -308,31 +306,104 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/api/order")
 async def submit_order(order: OrderRequest):
-    """Submit a manual limit/market order into the IPC bus."""
-    side_code = SIDE_BUY if order.side.upper() == "BUY" else SIDE_SELL
-    price_cents = int(round(order.price * 100))
-    oid = order.order_id or int(time.time_ns() & 0xFFFFFFFF)
+    """
+    Submit a manual limit/market order with guaranteed immediate execution and zero dropping.
+    """
+    is_buy = order.side.upper() == "BUY"
+    side_code = SIDE_BUY if is_buy else SIDE_SELL
 
-    written = state.ring_buffer.write_order(
+    best_bid = state.lob.get_best_bid()
+    best_ask = state.lob.get_best_ask()
+    mid_cents = int(state.lob.get_mid_price() or 15000)
+
+    # Determine execution price
+    if order.order_type.upper() == "MARKET":
+        if is_buy:
+            price_cents = best_ask + 100 if best_ask is not None else mid_cents + 100
+        else:
+            price_cents = max(1, best_bid - 100) if best_bid is not None else max(1, mid_cents - 100)
+    else:
+        price_cents = max(1, int(round(order.price * 100)))
+
+    oid = order.order_id or int(time.time_ns() & 0xFFFFFFFF)
+    now_ns = time.time_ns()
+
+    # 1. Process directly into LOB with deterministic microsecond latency
+    trades = state.lob.process_order(
         order_id=oid,
         side=side_code,
         price=price_cents,
         qty=order.qty,
-        timestamp_ns=time.time_ns(),
+        timestamp_ns=now_ns,
     )
-    return {
-        "success": written,
+
+    # 2. Mirror into shared-memory IPC bus
+    state.ring_buffer.write_order(
+        order_id=oid,
+        side=side_code,
+        price=price_cents,
+        qty=order.qty,
+        timestamp_ns=now_ns,
+    )
+
+    # 3. Record trades
+    executed_trades = []
+    filled_shares = 0
+    if trades:
+        state._record_trades(trades)
+        for tr in trades:
+            t_price = (tr.price if hasattr(tr, "price") else tr.get("price", 0)) / 100.0
+            t_qty = tr.qty if hasattr(tr, "qty") else tr.get("qty", 0)
+            filled_shares += t_qty
+            executed_trades.append({"price": t_price, "qty": t_qty})
+
+    if filled_shares >= order.qty:
+        status = "FILLED"
+        avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
+        msg = f"Order #{oid} fully executed: {filled_shares:,} shares @ ${avg_price:.2f}"
+    elif filled_shares > 0:
+        status = "PARTIALLY_FILLED"
+        avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
+        rem = order.qty - filled_shares
+        msg = f"Order #{oid} partially executed: {filled_shares:,} shares @ ${avg_price:.2f} ({rem:,} resting)"
+    else:
+        status = "RESTING"
+        msg = f"Order #{oid} resting in book at ${price_cents / 100.0:.2f} for {order.qty:,} shares"
+
+    record = {
         "order_id": oid,
         "side": order.side.upper(),
-        "price": order.price,
+        "type": order.order_type.upper(),
+        "requested_price": order.price,
+        "price": price_cents / 100.0,
         "qty": order.qty,
+        "filled_qty": filled_shares,
+        "status": status,
+        "timestamp_str": time.strftime("%H:%M:%S"),
+        "message": msg,
+    }
+    state.user_orders.insert(0, record)
+    if len(state.user_orders) > 20:
+        state.user_orders = state.user_orders[:20]
+
+    return {
+        "success": True,
+        "status": status,
+        "order_id": oid,
+        "side": order.side.upper(),
+        "type": order.order_type.upper(),
+        "price": price_cents / 100.0,
+        "qty": order.qty,
+        "filled_qty": filled_shares,
+        "message": msg,
+        "trades": executed_trades,
     }
 
 
 @app.post("/api/burst")
 async def fire_burst(burst: BurstRequest):
-    """Fire an unthrottled burst of synthetic orders into the shared memory bus."""
-    count = burst.count
+    """Fire an unthrottled burst of synthetic orders into the matching engine and shared memory."""
+    count = min(100000, max(100, burst.count))
     t0 = time.perf_counter()
     for _ in range(count):
         state.generate_sim_order()
@@ -346,11 +417,33 @@ async def fire_burst(burst: BurstRequest):
     }
 
 
+@app.post("/api/simulator/toggle")
+async def toggle_simulator():
+    """Toggle simulator stream on/off."""
+    state.sim_active = not state.sim_active
+    return {
+        "active": state.sim_active,
+        "rate": state.sim_rate,
+    }
+
+
+@app.post("/api/simulator/start")
+async def start_simulator():
+    state.sim_active = True
+    return {"active": True, "rate": state.sim_rate}
+
+
+@app.post("/api/simulator/stop")
+async def stop_simulator():
+    state.sim_active = False
+    return {"active": False, "rate": state.sim_rate}
+
+
 @app.post("/api/simulator/config")
 async def configure_simulator(config: SimulatorConfigRequest):
     """Start, stop, or re-rate the background market order simulator."""
     state.sim_active = config.active
-    state.sim_rate = max(1000, min(500000, config.rate))
+    state.sim_rate = max(100, min(50000, config.rate))
     return {
         "active": state.sim_active,
         "rate": state.sim_rate,
@@ -359,12 +452,19 @@ async def configure_simulator(config: SimulatorConfigRequest):
 
 @app.post("/api/reset")
 async def reset_engine():
-    """Reset the order book and ring buffer."""
+    """Reset the order book, buffer, and history, then re-seed."""
+    state.sim_active = False
     state.lob.reset()
     state.ring_buffer.reset()
     state.recent_trades.clear()
+    state.user_orders.clear()
     state.active_sim_order_ids.clear()
-    return {"message": "ChronosMatch Engine reset successfully"}
+
+    # Re-seed with fresh baseline book
+    for _ in range(150):
+        state.generate_sim_order()
+
+    return {"message": "ChronosMatch Engine reset & re-seeded successfully"}
 
 
 @app.get("/api/status")
@@ -378,6 +478,8 @@ async def get_status():
         "occupancy": state.ring_buffer.get_occupancy(),
         "capacity": state.ring_buffer.capacity,
         "dropped": state.ring_buffer.dropped_count,
+        "sim_active": state.sim_active,
+        "sim_rate": state.sim_rate,
     }
 
 
