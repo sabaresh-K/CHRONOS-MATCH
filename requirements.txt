@@ -1,0 +1,4 @@
+# ChronosMatch Dependency Manifest
+Cython>=3.0.0
+setuptools>=65.0.0
+pytest>=7.0.0
