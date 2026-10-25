@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChronosMatch — Institutional HFT Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <!-- TOP NAVIGATION BAR -->
+        <header class="top-nav">
+            <div class="nav-left">
+                <div class="app-brand">
+                    <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                    <span class="brand-name">ChronosMatch</span>
+                    <span class="version-tag">PRO</span>
+                </div>
+
+                <div class="market-ticker">
+                    <div class="ticker-symbol">
+                        <span class="symbol-main">CORE</span>
+                        <span class="symbol-pair">/USD</span>
+                    </div>
+                    <div class="ticker-stat">
+                        <span class="stat-caption">LAST MID</span>
+                        <span class="stat-num" id="tickerMid">$150.00</span>
+                    </div>
+                    <div class="ticker-stat">
+                        <span class="stat-caption">SPREAD</span>
+                        <span class="stat-num" id="tickerSpread">$0.01 <span class="sub-ticks">(1 tick)</span></span>
+                    </div>
+                    <div class="ticker-stat">
+                        <span class="stat-caption">MATCHED VOL</span>
+                        <span class="stat-num" id="tickerVol">0 shs</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav-right">
+                <div class="engine-badge" id="engineBadge">
+                    <span class="status-indicator live"></span>
+                    <span id="backendText">Cython Native (nogil)</span>
+                </div>
+
+                <div class="shm-pill">
+                    <svg class="pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                        <line x1="6" y1="6" x2="6.01" y2="6"/>
+                        <line x1="6" y1="18" x2="6.01" y2="18"/>
+                    </svg>
+                    <span>chronos_ipc.shm</span>
+                </div>
+
+                <div class="connection-pill" id="connectionStatus">
+                    <span class="dot"></span>
+                    <span id="connectionText">CONNECTED</span>
+                </div>
+
+                <div class="uptime-counter">
+                    <span class="uptime-label">UP:</span>
+                    <span class="uptime-time" id="uptimeVal">0.0s</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- SUB-TOOLBAR: SIMULATOR FIREHOSE & TELEMETRY STRIP -->
+        <section class="toolbar">
+            <div class="toolbar-section">
+                <span class="toolbar-label">SIMULATOR FIREHOSE</span>
+                <div class="btn-group">
+                    <button class="btn btn-chip" onclick="fireBurst(10000)">10k</button>
+                    <button class="btn btn-chip" onclick="fireBurst(50000)">50k</button>
+                    <button class="btn btn-chip" onclick="fireBurst(100000)">100k</button>
+                    <button class="btn btn-chip highlight" onclick="fireBurst(500000)">500k Max</button>
+                </div>
+            </div>
+
+            <div class="toolbar-divider"></div>
+
+            <div class="toolbar-section stream-section">
+                <span class="toolbar-label">RATE:</span>
+                <span class="rate-val" id="rateDisplay">50,000 /s</span>
+                <input type="range" id="rateSlider" min="10000" max="250000" step="10000" value="50000">
+                <button class="btn btn-action" id="btnStreamToggle" onclick="toggleStream()">
+                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <span>Start Stream</span>
+                </button>
+            </div>
+
+            <div class="toolbar-divider"></div>
+
+            <div class="toolbar-section quick-stats">
+                <div class="quick-metric">
+                    <span class="qm-label">MEDIAN (p50)</span>
+                    <span class="qm-value cyan" id="statP50">0.50 μs</span>
+                </div>
+                <div class="quick-metric">
+                    <span class="qm-label">TAIL (p99)</span>
+                    <span class="qm-value emerald" id="statP99">1.70 μs</span>
+                </div>
+                <div class="quick-metric">
+                    <span class="qm-label">THROUGHPUT</span>
+                    <span class="qm-value yellow" id="statThroughput">0 ord/s</span>
+                </div>
+            </div>
+
+            <div class="toolbar-actions">
+                <button class="btn btn-subtle" onclick="resetEngine()" title="Reset order book and buffer">
+                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                    </svg>
+                    <span>Reset Book</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- MAIN TERMINAL WORKSPACE -->
+        <main class="terminal-grid">
+            <!-- COLUMN 1: ORDER BOOK (L2 DOM) -->
+            <section class="card book-card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span>Order Book</span>
+                        <span class="caption">Depth of Market</span>
+                    </div>
+                    <div class="book-filters">
+                        <span class="view-pill active">0.01</span>
+                    </div>
+                </div>
+
+                <div class="book-table-header">
+                    <span class="th-price">Price (USD)</span>
+                    <span class="th-size">Size</span>
+                    <span class="th-total">Total</span>
+                </div>
+
+                <!-- ASKS LADDER -->
+                <div class="book-ladder asks-ladder" id="asksContainer">
+                    <div class="ladder-placeholder">Awaiting order flow...</div>
+                </div>
+
+                <!-- SPREAD / MID ROW -->
+                <div class="spread-row" id="spreadBanner">
+                    <div class="spread-info">
+                        <span class="spread-tag">Spread</span>
+                        <span class="spread-amt" id="spreadVal">$0.01</span>
+                        <span class="spread-ticks" id="spreadTicks">(1 tick)</span>
+                    </div>
+                    <div class="mid-info">
+                        <span class="mid-tag">Mid</span>
+                        <span class="mid-amt" id="midVal">$150.00</span>
+                    </div>
+                </div>
+
+                <!-- BIDS LADDER -->
+                <div class="book-ladder bids-ladder" id="bidsContainer">
+                    <div class="ladder-placeholder">Awaiting order flow...</div>
+                </div>
+            </section>
+
+            <!-- COLUMN 2: ANALYTICS & TIME/SALES -->
+            <section class="card center-card">
+                <div class="card-header tab-header">
+                    <div class="segmented-control">
+                        <button class="seg-btn active" id="tabDepth" onclick="switchTab('depth')">Market Depth</button>
+                        <button class="seg-btn" id="tabTape" onclick="switchTab('tape')">Time &amp; Sales</button>
+                        <button class="seg-btn" id="tabLatency" onclick="switchTab('latency')">Latency Distribution</button>
+                    </div>
+
+                    <div class="header-metrics" id="tabHeaderMetrics">
+                        <span class="metric-chip" id="chipThroughput">0 ord/s</span>
+                        <span class="metric-chip" id="chipTrades">0 fills</span>
+                    </div>
+                </div>
+
+                <!-- TAB 1: MARKET DEPTH CHART -->
+                <div class="tab-pane active" id="paneDepth">
+                    <div class="canvas-box">
+                        <canvas id="depthCanvas" width="620" height="340"></canvas>
+                    </div>
+                </div>
+
+                <!-- TAB 2: TIME & SALES TAPE -->
+                <div class="tab-pane" id="paneTape">
+                    <div class="tape-table-header">
+                        <span>Time</span>
+                        <span>Side</span>
+                        <span>Price</span>
+                        <span>Quantity</span>
+                        <span>Maker ID</span>
+                        <span>Taker ID</span>
+                    </div>
+                    <div class="tape-scroller" id="tapeBody">
+                        <div class="tape-empty">No trade fills recorded yet.</div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: LATENCY DISTRIBUTION -->
+                <div class="tab-pane" id="paneLatency">
+                    <div class="canvas-box">
+                        <canvas id="latencyCanvas" width="620" height="340"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COLUMN 3: ORDER TICKET & TELEMETRY -->
+            <aside class="right-column">
+                <!-- ORDER ENTRY TICKET -->
+                <section class="card ticket-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span>Order Ticket</span>
+                            <span class="caption">Zero-Copy Submission</span>
+                        </div>
+                    </div>
+
+                    <div class="ticket-body">
+                        <!-- SIDE SELECTOR -->
+                        <div class="side-tabs">
+                            <button type="button" class="side-tab buy active" id="btnSideBuy" onclick="setSide('BUY')">
+                                Buy / Long
+                            </button>
+                            <button type="button" class="side-tab sell" id="btnSideSell" onclick="setSide('SELL')">
+                                Sell / Short
+                            </button>
+                        </div>
+
+                        <form id="orderForm" onsubmit="submitManualOrder(event)">
+                            <!-- ORDER TYPE -->
+                            <div class="form-field">
+                                <label class="field-label">Order Type</label>
+                                <div class="type-selector">
+                                    <button type="button" class="type-btn active" id="typeLimit" onclick="setType('LIMIT')">Limit</button>
+                                    <button type="button" class="type-btn" id="typeMarket" onclick="setType('MARKET')">Market</button>
+                                </div>
+                            </div>
+
+                            <!-- PRICE INPUT -->
+                            <div class="form-field" id="priceFieldWrapper">
+                                <div class="field-header">
+                                    <label class="field-label" for="orderPrice">Price</label>
+                                    <span class="currency-tag">USD</span>
+                                </div>
+                                <div class="stepper-input">
+                                    <button type="button" class="step-btn" onclick="stepPrice(-0.01)">−</button>
+                                    <input type="number" id="orderPrice" step="0.01" min="0.01" max="99999.00" value="150.00" required>
+                                    <button type="button" class="step-btn" onclick="stepPrice(0.01)">+</button>
+                                </div>
+                            </div>
+
+                            <!-- QUANTITY INPUT -->
+                            <div class="form-field">
+                                <div class="field-header">
+                                    <label class="field-label" for="orderQty">Quantity</label>
+                                    <span class="currency-tag">SHARES</span>
+                                </div>
+                                <div class="stepper-input">
+                                    <button type="button" class="step-btn" onclick="stepQty(-50)">−</button>
+                                    <input type="number" id="orderQty" step="10" min="1" max="500000" value="100" required oninput="updateOrderEstimate()">
+                                    <button type="button" class="step-btn" onclick="stepQty(50)">+</button>
+                                </div>
+                                <div class="preset-chips">
+                                    <button type="button" class="chip" onclick="setQty(100)">100</button>
+                                    <button type="button" class="chip" onclick="setQty(500)">500</button>
+                                    <button type="button" class="chip" onclick="setQty(1000)">1k</button>
+                                    <button type="button" class="chip" onclick="setQty(5000)">5k</button>
+                                </div>
+                            </div>
+
+                            <!-- ORDER SUMMARY -->
+                            <div class="order-summary">
+                                <div class="summary-line">
+                                    <span class="sum-label">Est. Value:</span>
+                                    <span class="sum-val" id="orderValueEstimate">$15,000.00</span>
+                                </div>
+                                <div class="summary-line">
+                                    <span class="sum-label">Execution:</span>
+                                    <span class="sum-val highlight">Direct SHM Ring</span>
+                                </div>
+                            </div>
+
+                            <!-- SUBMIT BUTTON -->
+                            <button type="submit" class="btn btn-submit-trade buy" id="btnSubmitOrder">
+                                Place Buy Order
+                            </button>
+                        </form>
+
+                        <div class="ticket-status" id="ticketStatus"></div>
+                    </div>
+                </section>
+
+                <!-- TELEMETRY & LATENCY CARD -->
+                <section class="card telemetry-card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span>Engine Latency</span>
+                            <span class="caption">Microsecond Metrics</span>
+                        </div>
+                    </div>
+
+                    <div class="telemetry-table">
+                        <div class="telemetry-row">
+                            <span class="t-label">Median (p50)</span>
+                            <span class="t-val cyan" id="latP50">0.50 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">90th Percentile</span>
+                            <span class="t-val" id="latP90">0.70 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">95th Percentile</span>
+                            <span class="t-val" id="latP95">1.10 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">99th Percentile</span>
+                            <span class="t-val emerald" id="latP99">1.70 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">99.9th Percentile</span>
+                            <span class="t-val" id="latP999">5.80 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">Min / Max</span>
+                            <span class="t-val muted" id="latMinMax">0.20 / 84.4 μs</span>
+                        </div>
+                        <div class="telemetry-row">
+                            <span class="t-label">Average</span>
+                            <span class="t-val" id="latAvg">0.60 μs</span>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </main>
+
+        <!-- FOOTER STATUS STRIP -->
+        <footer class="bottom-bar">
+            <div class="footer-left">
+                <span class="footer-item">
+                    <span class="dot-status ok"></span>
+                    <span>Single Producer Single Consumer (SPSC) IPC</span>
+                </span>
+                <span class="footer-sep">/</span>
+                <span class="footer-item">Buffer Capacity: <strong>65,536 slots</strong></span>
+                <span class="footer-sep">/</span>
+                <span class="footer-item" id="footerOccupancy">Occupancy: 0 (0.0%)</span>
+            </div>
+
+            <div class="footer-right">
+                <span class="footer-item" id="footerOrdersCount">Processed: 0 orders</span>
+                <span class="footer-sep">/</span>
+                <span class="footer-item" id="footerTradesCount">Executed: 0 trades</span>
+                <span class="footer-sep">/</span>
+                <span class="footer-item" id="footerDroppedCount">Dropped: 0</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

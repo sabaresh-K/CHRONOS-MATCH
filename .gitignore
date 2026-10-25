@@ -8,7 +8,8 @@ __pycache__/
 # C extensions & Cython output
 *.c
 *.cpp
-*.html
+core/*.html
+!web/*.html
 build/
 dist/
 *.egg-info/
