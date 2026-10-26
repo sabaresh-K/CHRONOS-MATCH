@@ -2,3 +2,9 @@
 Cython>=3.0.0
 setuptools>=65.0.0
 pytest>=7.0.0
+
+# Real-Time Web Trading Terminal & WebSocket Gateway
+fastapi>=0.100.0
+uvicorn[standard]>=0.22.0
+websockets>=12.0
+pydantic>=2.0.0

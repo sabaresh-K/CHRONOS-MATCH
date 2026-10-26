@@ -111,7 +111,12 @@ chronosmatch/
 ├── services/
 │   ├── __init__.py
 │   ├── market_simulator.py    # Asyncio High-Throughput Market Order Firehose (100k+/sec)
-│   └── latency_monitor.py     # Live Terminal UI (Order Book Depth & Microsecond Telemetry)
+│   ├── latency_monitor.py     # Live Terminal UI (Order Book Depth & Microsecond Telemetry)
+│   └── web_server.py          # FastAPI & WebSocket Real-Time Trading Terminal Bridge
+├── web/
+│   ├── index.html             # High-Density Real-Time L2 Terminal Interface
+│   ├── app.js                 # WebSocket client, Depth Ladder & Performance Visualizer
+│   └── style.css              # Cyberpunk-institutional HFT design system
 ├── tests/
 │   ├── __init__.py
 │   └── benchmark_suite.py     # Deterministic FIFO Verification & 1M-Order Benchmark
