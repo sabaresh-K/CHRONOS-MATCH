@@ -508,18 +508,46 @@ function renderUserOrders(orders) {
 
     userOrdersList.innerHTML = orders.map(o => {
         const isBuy = o.side === "BUY";
-        const isFilled = o.status === "FILLED";
+        const statusLower = (o.status || "").toLowerCase();
+        const canCancel = o.status === "RESTING" || o.status === "PARTIALLY_FILLED";
+        const cancelBtn = canCancel
+            ? `<button type="button" class="btn-cancel-order" onclick="cancelOrder(${o.order_id})" title="Cancel Order #${o.order_id}">✕ Cancel</button>`
+            : "";
+
         return `
             <div class="history-item">
                 <div class="hist-left">
+                    <span class="hist-oid">#${o.order_id}</span>
                     <span class="hist-side ${isBuy ? 'buy' : 'sell'}">${o.side}</span>
                     <span class="hist-price">$${o.price.toFixed(2)}</span>
-                    <span class="hist-qty">(${o.qty} shs)</span>
+                    <span class="hist-qty">(${o.qty.toLocaleString()} shs)</span>
                 </div>
-                <span class="hist-status ${isFilled ? 'filled' : 'resting'}">${o.status}</span>
+                <div class="hist-right">
+                    <span class="hist-status ${statusLower}">${o.status}</span>
+                    ${cancelBtn}
+                </div>
             </div>
         `;
     }).join("");
+}
+
+async function cancelOrder(orderId) {
+    showFeedback(`Cancelling order #${orderId}...`, "success-resting");
+    try {
+        const resp = await fetch("/api/order/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: orderId }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+            showFeedback(`✓ Order #${orderId} cancelled`, "success-fill");
+        } else {
+            showFeedback(`Cancel failed: ${res.message || "Order not active"}`, "error");
+        }
+    } catch (err) {
+        showFeedback(`Cancel failed: ${err.message}`, "error");
+    }
 }
 
 

@@ -31,10 +31,14 @@ from core import (
 
 class OrderRequest(BaseModel):
     side: str  # "BUY", "SELL", "CANCEL"
-    price: float  # In dollars, e.g. 150.25
-    qty: int  # Share quantity
+    price: float = 0.0  # In dollars, e.g. 150.25
+    qty: int = 0  # Share quantity
     order_type: str = "LIMIT"  # "LIMIT" or "MARKET"
     order_id: Optional[int] = None
+
+
+class CancelOrderRequest(BaseModel):
+    order_id: int
 
 
 class BurstRequest(BaseModel):
@@ -304,11 +308,51 @@ async def websocket_endpoint(websocket: WebSocket):
         state.clients.discard(websocket)
 
 
+async def cancel_order_internal(order_id: int):
+    """Cancel an active order in LOB and mirror the cancellation packet to IPC ring buffer."""
+    now_ns = time.time_ns()
+    cancelled = state.lob.cancel_order(order_id)
+    state.ring_buffer.write_order(
+        order_id=order_id,
+        side=SIDE_CANCEL,
+        price=0,
+        qty=0,
+        timestamp_ns=now_ns,
+    )
+
+    # Update state.user_orders record if present
+    for uo in state.user_orders:
+        if uo.get("order_id") == order_id:
+            uo["status"] = "CANCELLED"
+            uo["message"] = f"Order #{order_id} cancelled by user"
+            break
+
+    if cancelled:
+        return {
+            "success": True,
+            "status": "CANCELLED",
+            "order_id": order_id,
+            "message": f"Order #{order_id} cancelled successfully",
+        }
+    else:
+        return {
+            "success": False,
+            "status": "NOT_FOUND",
+            "order_id": order_id,
+            "message": f"Order #{order_id} not found in book or already filled",
+        }
+
+
 @app.post("/api/order")
 async def submit_order(order: OrderRequest):
     """
-    Submit a manual limit/market order with guaranteed immediate execution and zero dropping.
+    Submit a manual limit/market/cancel order with guaranteed immediate execution and zero dropping.
     """
+    if order.side.upper() == "CANCEL":
+        if not order.order_id:
+            return JSONResponse(status_code=400, content={"success": False, "message": "order_id is required for cancellation"})
+        return await cancel_order_internal(order.order_id)
+
     is_buy = order.side.upper() == "BUY"
     side_code = SIDE_BUY if is_buy else SIDE_SELL
 
@@ -398,6 +442,18 @@ async def submit_order(order: OrderRequest):
         "message": msg,
         "trades": executed_trades,
     }
+
+
+@app.post("/api/order/cancel")
+async def cancel_order_endpoint(req: CancelOrderRequest):
+    """Cancel an active resting order from the Limit Order Book and mirror to IPC."""
+    return await cancel_order_internal(req.order_id)
+
+
+@app.delete("/api/order/{order_id}")
+async def delete_order_endpoint(order_id: int):
+    """Cancel an active resting order by ID."""
+    return await cancel_order_internal(order_id)
 
 
 @app.post("/api/burst")

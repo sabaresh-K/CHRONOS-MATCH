@@ -1120,7 +1120,18 @@ canvas {
 .hist-left {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
+}
+
+.hist-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.hist-oid {
+    color: var(--text-dim);
+    font-size: 9.5px;
 }
 
 .hist-side { font-weight: 700; }
@@ -1144,6 +1155,35 @@ canvas {
 .hist-status.resting {
     background: rgba(56, 189, 248, 0.12);
     color: var(--accent-cyan);
+}
+
+.hist-status.cancelled {
+    background: rgba(255, 51, 102, 0.15);
+    color: var(--sell-red);
+}
+
+.hist-status.partially_filled {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--accent-yellow);
+}
+
+.btn-cancel-order {
+    background: rgba(255, 51, 102, 0.08);
+    border: 1px solid rgba(255, 51, 102, 0.35);
+    color: var(--sell-red);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-cancel-order:hover {
+    background: rgba(255, 51, 102, 0.25);
+    border-color: var(--sell-red);
+    color: #fff;
 }
 
 /* ==========================================================================

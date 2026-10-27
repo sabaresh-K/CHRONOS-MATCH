@@ -142,6 +142,9 @@ def test_order_cancellation() -> None:
     cancelled = lob.cancel_order(order_id=1)
     assert cancelled is True, "Cancellation should return True"
 
+    # Also verify non-existent order cancellation returns False
+    assert lob.cancel_order(order_id=999) is False
+
     # Incoming Sell at $50.00 for 100 shares
     # Must match Bid 2 (since Bid 1 was cancelled)
     trades = lob.process_order(order_id=3, side=SIDE_SELL, price=5000, qty=100)
@@ -150,6 +153,12 @@ def test_order_cancellation() -> None:
     assert maker == 2, f"Expected match with Order 2, got {maker}"
 
     # Book should be empty
+    assert lob.get_best_bid() is None
+
+    # Place Bid 4 and cancel via SIDE_CANCEL packet in process_order
+    lob.process_order(order_id=4, side=SIDE_BUY, price=6000, qty=50)
+    assert lob.get_best_bid() == 6000
+    lob.process_order(order_id=4, side=SIDE_CANCEL, price=0, qty=0)
     assert lob.get_best_bid() is None
 
 

@@ -14,6 +14,7 @@ from libc.stdlib cimport malloc, free
 cimport cython
 
 import time
+import bisect
 from typing import List, Tuple, Optional, Dict
 
 # ---------------------------------------------------------------------------
@@ -164,7 +165,6 @@ cdef class LimitOrderBook:
                 if price not in self.bids:
                     self.bids[price] = []
                     # Insert in ascending order
-                    import bisect
                     bisect.insort(self.bid_prices, price)
                 self.bids[price].append(order_dict)
                 self.orders[order_id] = (order_dict, 1)
@@ -215,7 +215,6 @@ cdef class LimitOrderBook:
                 }
                 if price not in self.asks:
                     self.asks[price] = []
-                    import bisect
                     bisect.insort(self.ask_prices, price)
                 self.asks[price].append(order_dict)
                 self.orders[order_id] = (order_dict, 2)
@@ -234,7 +233,6 @@ cdef class LimitOrderBook:
         cdef int32_t price = <int32_t>order_dict['price']
         cdef list queue
         cdef int idx
-        import bisect
 
         if side == 1:
             if price in self.bids:
