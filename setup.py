@@ -25,11 +25,17 @@ if HAVE_CYTHON:
     ext_modules = cythonize(
         [
             Extension(
+                "orderbook",
+                sources=["orderbook.pyx"],
+                extra_compile_args=extra_compile_args,
+                extra_link_args=extra_link_args,
+            ),
+            Extension(
                 "core.lob_engine",
                 sources=["core/lob_engine.pyx"],
                 extra_compile_args=extra_compile_args,
                 extra_link_args=extra_link_args,
-            )
+            ),
         ],
         annotate=True,  # Generates core/lob_engine.html for C-API overhead inspection
         compiler_directives={
