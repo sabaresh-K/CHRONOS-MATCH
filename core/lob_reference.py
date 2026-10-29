@@ -216,6 +216,29 @@ class LimitOrderBook:
         self._record_latency(start_ns)
         return executed_trades
 
+    def process_shm_batch(self, shm_memoryview, max_orders: int = 1024) -> int:
+        """
+        Direct zero-copy processing of 32-byte binary order packets from shared memory.
+        Parses buffer directly, matches through LOB, and advances consumer read index.
+        """
+        from .ipc_bus import ORDER_STRUCT, UINT64_STRUCT
+        raw_view = memoryview(shm_memoryview)
+        cap = UINT64_STRUCT.unpack_from(raw_view, 8)[0]
+        w = UINT64_STRUCT.unpack_from(raw_view, 16)[0]
+        r = UINT64_STRUCT.unpack_from(raw_view, 24)[0]
+        avail = w - r
+        if avail <= 0:
+            return 0
+        count = min(avail, max_orders)
+        mask = cap - 1
+        for i in range(count):
+            slot = (r + i) & mask
+            offset = 64 + (slot * 32)
+            order_id, side, price, qty, ts = ORDER_STRUCT.unpack_from(raw_view, offset)
+            self.process_order(order_id, side, price, qty, ts)
+        UINT64_STRUCT.pack_into(raw_view, 24, r + count)
+        return count
+
     def cancel_order(self, order_id: int) -> bool:
         """
         O(1) cancellation of an active limit order.

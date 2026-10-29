@@ -193,6 +193,32 @@ def test_zero_copy_ipc_roundtrip(tmp_path=None) -> None:
         ring.unlink()
 
 
+def test_direct_shm_batch_processing() -> None:
+    """
+    Verify direct zero-copy matching from raw memoryview buffer into LimitOrderBook.
+    """
+    test_shm = "test_lob_shm.shm"
+    try:
+        ring = RingBuffer(filepath=test_shm, capacity=1024, create=True)
+        # Write resting ask and crossing buy
+        ring.write_order(order_id=201, side=SIDE_SELL, price=15050, qty=200)
+        ring.write_order(order_id=202, side=SIDE_BUY, price=15050, qty=150)
+
+        lob = LimitOrderBook()
+        view = ring.buffer_view
+        processed = lob.process_shm_batch(view, max_orders=10)
+
+        assert processed == 2, f"Expected 2 processed, got {processed}"
+        assert lob.orders_processed == 2
+        assert lob.trades_executed == 1
+        assert lob.total_volume == 150
+        assert lob.get_best_ask() == 15050
+        depth = lob.get_depth(levels=1)[1]
+        assert depth == [(15050, 50)], f"Expected residual ask (15050, 50), got {depth}"
+    finally:
+        ring.unlink()
+
+
 # ===========================================================================
 # 2. 1M-ORDER ZERO-COPY IPC THROUGHPUT BENCHMARK
 # ===========================================================================
@@ -314,7 +340,9 @@ def run_all_benchmarks() -> None:
     print("  [PASS] Cancellation: O(1) order cancellation verified.")
     test_zero_copy_ipc_roundtrip()
     print("  [PASS] Zero-Copy IPC: Bit-exact 32-byte packet serialization verified.")
-    print("  >>> ALL 5 DETERMINISTIC FIFO TESTS PASSED.")
+    test_direct_shm_batch_processing()
+    print("  [PASS] Direct SHM Batch: Zero-copy memoryview batch processing into LOB verified.")
+    print("  >>> ALL 6 DETERMINISTIC FIFO & IPC TESTS PASSED.")
 
     # 2. 1M-Order IPC Throughput Benchmark
     print("\n[2/3] Benchmarking 1,000,000-Order Zero-Copy Shared Memory IPC...")

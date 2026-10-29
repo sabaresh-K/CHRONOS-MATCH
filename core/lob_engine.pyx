@@ -13,6 +13,7 @@ from libc.stdint cimport uint64_t, uint32_t, int32_t, uint8_t
 from libc.stdlib cimport malloc, free
 cimport cython
 
+from collections import deque
 import time
 import bisect
 from typing import List, Tuple, Optional, Dict
@@ -52,12 +53,12 @@ cdef class LimitOrderBook:
     """
     Cython Native Price-Time Priority Limit Order Book.
     
-    Operates on static C structs and unboxed integers to eliminate
-    PyObject allocations and GC pauses during high-frequency matching.
+    Operates on unboxed integers and O(1) deque price levels to eliminate
+    queue shift overhead and GC pauses during high-frequency matching.
     """
     # Fast Python-level dictionaries for dynamic levels and order indexing
-    cdef object bids            # dict: price -> list/deque
-    cdef object asks            # dict: price -> list/deque
+    cdef object bids            # dict: price -> deque
+    cdef object asks            # dict: price -> deque
     cdef list bid_prices        # sorted list of prices (ascending)
     cdef list ask_prices        # sorted list of prices (ascending)
     cdef dict orders            # order_id -> (order_dict, side)
@@ -106,7 +107,7 @@ cdef class LimitOrderBook:
         cdef uint32_t remaining_qty = qty
         cdef uint32_t trade_qty
         cdef int32_t best_ask, best_bid
-        cdef list level_orders
+        cdef object level_orders
         cdef dict maker_order
         cdef object trade_obj
 
@@ -122,7 +123,7 @@ cdef class LimitOrderBook:
         if side == 1:
             while self.ask_prices and (<int32_t>self.ask_prices[0]) <= price and remaining_qty > 0:
                 best_ask = <int32_t>self.ask_prices[0]
-                level_orders = <list>self.asks[best_ask]
+                level_orders = self.asks[best_ask]
 
                 while level_orders and remaining_qty > 0:
                     maker_order = <dict>level_orders[0]
@@ -146,7 +147,7 @@ cdef class LimitOrderBook:
                     maker_order['qty'] = (<uint32_t>maker_order['qty']) - trade_qty
 
                     if (<uint32_t>maker_order['qty']) == 0:
-                        level_orders.pop(0)
+                        level_orders.popleft()
                         if maker_order['order_id'] in self.orders:
                             del self.orders[maker_order['order_id']]
 
@@ -163,7 +164,7 @@ cdef class LimitOrderBook:
                     'timestamp_ns': ts,
                 }
                 if price not in self.bids:
-                    self.bids[price] = []
+                    self.bids[price] = deque()
                     # Insert in ascending order
                     bisect.insort(self.bid_prices, price)
                 self.bids[price].append(order_dict)
@@ -173,7 +174,7 @@ cdef class LimitOrderBook:
         elif side == 2:
             while self.bid_prices and (<int32_t>self.bid_prices[len(self.bid_prices) - 1]) >= price and remaining_qty > 0:
                 best_bid = <int32_t>self.bid_prices[len(self.bid_prices) - 1]
-                level_orders = <list>self.bids[best_bid]
+                level_orders = self.bids[best_bid]
 
                 while level_orders and remaining_qty > 0:
                     maker_order = <dict>level_orders[0]
@@ -197,7 +198,7 @@ cdef class LimitOrderBook:
                     maker_order['qty'] = (<uint32_t>maker_order['qty']) - trade_qty
 
                     if (<uint32_t>maker_order['qty']) == 0:
-                        level_orders.pop(0)
+                        level_orders.popleft()
                         if maker_order['order_id'] in self.orders:
                             del self.orders[maker_order['order_id']]
 
@@ -214,13 +215,60 @@ cdef class LimitOrderBook:
                     'timestamp_ns': ts,
                 }
                 if price not in self.asks:
-                    self.asks[price] = []
+                    self.asks[price] = deque()
                     bisect.insort(self.ask_prices, price)
                 self.asks[price].append(order_dict)
                 self.orders[order_id] = (order_dict, 2)
 
         self._record_latency(start_ns)
         return executed_trades
+
+    cpdef int process_shm_batch(self, object shm_memoryview, int max_orders=1024):
+        """
+        Direct zero-copy processing of 32-byte binary order packets from shared memory.
+        Parses buffer directly, matches through LOB, and advances consumer read index.
+        """
+        cdef const unsigned char[:] buf = shm_memoryview
+        cdef const char* raw_ptr = <const char*>&buf[0]
+        cdef uint64_t* write_idx_ptr = <uint64_t*>(raw_ptr + 16)
+        cdef uint64_t* read_idx_ptr = <uint64_t*>(raw_ptr + 24)
+        cdef uint64_t* cap_ptr = <uint64_t*>(raw_ptr + 8)
+
+        cdef uint64_t w = write_idx_ptr[0]
+        cdef uint64_t r = read_idx_ptr[0]
+        cdef uint64_t cap = cap_ptr[0]
+        cdef uint64_t mask = cap - 1
+        cdef uint64_t avail = w - r
+
+        if avail <= 0:
+            return 0
+
+        cdef int count = <int>(avail if avail < <uint64_t>max_orders else <uint64_t>max_orders)
+        cdef int processed = 0
+        cdef uint64_t slot, offset
+        cdef const char* pkt
+        cdef uint64_t order_id, ts
+        cdef uint8_t side
+        cdef int32_t price
+        cdef uint32_t qty
+
+        while processed < count:
+            slot = (r + processed) & mask
+            offset = 64 + (slot * 32)
+            pkt = raw_ptr + offset
+
+            # Unpack 32-byte packet: <QB3xiIQ4x
+            order_id = (<uint64_t*>(pkt + 0))[0]
+            side = (<uint8_t*>(pkt + 8))[0]
+            price = (<int32_t*>(pkt + 12))[0]
+            qty = (<uint32_t*>(pkt + 16))[0]
+            ts = (<uint64_t*>(pkt + 20))[0]
+
+            self.process_order(order_id, side, price, qty, ts)
+            processed += 1
+
+        read_idx_ptr[0] = r + processed
+        return processed
 
     cpdef bint cancel_order(self, uint64_t order_id):
         """O(1) cancellation of an active limit order."""
@@ -231,12 +279,12 @@ cdef class LimitOrderBook:
         cdef dict order_dict = <dict>item[0]
         cdef uint8_t side = <uint8_t>item[1]
         cdef int32_t price = <int32_t>order_dict['price']
-        cdef list queue
+        cdef object queue
         cdef int idx
 
         if side == 1:
             if price in self.bids:
-                queue = <list>self.bids[price]
+                queue = self.bids[price]
                 try:
                     queue.remove(order_dict)
                 except ValueError:
@@ -248,7 +296,7 @@ cdef class LimitOrderBook:
                         self.bid_prices.pop(idx)
         else:
             if price in self.asks:
-                queue = <list>self.asks[price]
+                queue = self.asks[price]
                 try:
                     queue.remove(order_dict)
                 except ValueError:
@@ -270,17 +318,17 @@ cdef class LimitOrderBook:
         return self.ask_prices[0] if n > 0 else None
 
     cpdef object get_spread(self):
-        cdef object bb = self.get_best_bid()
-        cdef object ba = self.get_best_ask()
-        if bb is not None and ba is not None:
-            return (<int32_t>ba) - (<int32_t>bb)
+        cdef int nb = len(self.bid_prices)
+        cdef int na = len(self.ask_prices)
+        if nb > 0 and na > 0:
+            return (<int32_t>self.ask_prices[0]) - (<int32_t>self.bid_prices[nb - 1])
         return None
 
     cpdef object get_mid_price(self):
-        cdef object bb = self.get_best_bid()
-        cdef object ba = self.get_best_ask()
-        if bb is not None and ba is not None:
-            return ((<int32_t>ba) + (<int32_t>bb)) / 2.0
+        cdef int nb = len(self.bid_prices)
+        cdef int na = len(self.ask_prices)
+        if nb > 0 and na > 0:
+            return ((<int32_t>self.ask_prices[0]) + (<int32_t>self.bid_prices[nb - 1])) / 2.0
         return None
 
     cpdef tuple get_depth(self, int levels=5):
@@ -292,14 +340,14 @@ cdef class LimitOrderBook:
         cdef int n_asks = len(self.ask_prices)
         cdef int start_idx = n_bids - levels if n_bids >= levels else 0
         cdef int i
-        cdef list orders_at_level
+        cdef object orders_at_level
         cdef dict o
 
         # Top N Bids (descending from best bid)
         for i in range(n_bids - 1, start_idx - 1, -1):
             p = <int32_t>self.bid_prices[i]
             total_qty = 0
-            orders_at_level = <list>self.bids[p]
+            orders_at_level = self.bids[p]
             for o in orders_at_level:
                 total_qty += <uint32_t>o['qty']
             bid_depth.append((p, total_qty))
@@ -309,7 +357,7 @@ cdef class LimitOrderBook:
         for i in range(end_idx):
             p = <int32_t>self.ask_prices[i]
             total_qty = 0
-            orders_at_level = <list>self.asks[p]
+            orders_at_level = self.asks[p]
             for o in orders_at_level:
                 total_qty += <uint32_t>o['qty']
             ask_depth.append((p, total_qty))

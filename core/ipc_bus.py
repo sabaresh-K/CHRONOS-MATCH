@@ -192,6 +192,13 @@ class RingBuffer:
         r = self.read_idx
         return max(0, w - r)
 
+    @property
+    def buffer_view(self) -> memoryview:
+        """Zero-copy memoryview of the underlying shared memory buffer."""
+        if self._view is None and self._mmap is not None:
+            self._view = memoryview(self._mmap)
+        return self._view
+
     # -----------------------------------------------------------------------
     # Zero-Copy Fast Packet I/O
     # -----------------------------------------------------------------------
