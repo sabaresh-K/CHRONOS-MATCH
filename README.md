@@ -206,6 +206,8 @@ Sample Live Terminal UI output:
      • p99:      14.20 μs          • p99.9:           22.50 μs
      • Max:      41.10 μs          • Avg:              5.22 μs
 ══════════════════════════════════════════════════════════════════════════════════
+```
+
 ### 4. Launch the Real-Time Web Trading Terminal (Localhost)
 Launch the FastAPI & WebSocket bridge server to open the interactive HFT web terminal:
 ```bash
