@@ -149,6 +149,30 @@ def test_direct_shm_batch_reading():
     print("  [PASS] test_direct_shm_batch_reading")
 
 
+def test_ioc_order_types():
+    """Verify Immediate-Or-Cancel (IOC) partial matching and uncrossed volume cancellation."""
+    from core import LimitOrderBook, SIDE_BUY, SIDE_SELL, SIDE_IOC_BUY, SIDE_IOC_SELL
+    lob = LimitOrderBook()
+
+    # Place 100 resting asks @ 150.00
+    lob.process_order(order_id=1, side=SIDE_SELL, price=15000, qty=100)
+
+    # Place IOC Buy for 250 shares @ 150.00 -> 100 shares match, 150 residual cancelled
+    trades = lob.process_order(order_id=2, side=SIDE_IOC_BUY, price=15000, qty=250)
+    assert len(trades) == 1
+    assert trades[0]['qty'] == 100
+    # No resting bids should exist in the book
+    assert lob.get_best_bid() is None
+    assert lob.get_best_ask() is None
+
+    # Test Analytics: VWAP, book imbalance
+    lob.process_order(order_id=3, side=SIDE_SELL, price=15000, qty=100)
+    lob.process_order(order_id=4, side=SIDE_BUY, price=14900, qty=300)
+    assert lob.get_vwap() == 15000.0
+    assert round(lob.get_order_imbalance(), 2) == 0.5  # (300 - 100) / 400 = 0.5
+    print("  [PASS] test_ioc_order_types")
+
+
 if __name__ == "__main__":
     print("\n==================================================")
     print(" DAY 2: CYTHON FIFO MATCHING CORE & SHM TESTS")
@@ -159,6 +183,7 @@ if __name__ == "__main__":
     test_partial_fill_queue_retention()
     test_order_cancellation()
     test_direct_shm_batch_reading()
+    test_ioc_order_types()
     print("==================================================")
     print(" ALL DAY 2 CYTHON ORDERBOOK UNIT TESTS PASSED!")
     print("==================================================\n")

@@ -31,6 +31,16 @@ assert ORDER_SIZE == 32, f"ORDER_SIZE must be exactly 32 bytes, got {ORDER_SIZE}
 SIDE_BUY: int = 1
 SIDE_SELL: int = 2
 SIDE_CANCEL: int = 3
+SIDE_IOC_BUY: int = 4
+SIDE_IOC_SELL: int = 5
+
+SIDE_NAMES = {
+    SIDE_BUY: "BUY",
+    SIDE_SELL: "SELL",
+    SIDE_CANCEL: "CANCEL",
+    SIDE_IOC_BUY: "IOC_BUY",
+    SIDE_IOC_SELL: "IOC_SELL",
+}
 
 # 64-Byte Cache-Line-Aligned Ring Buffer Header Specification:
 # 8s  : 8 bytes - Magic identifier ("CHRONOS\0")
@@ -303,6 +313,18 @@ class RingBuffer:
 
         self.read_idx = r + count
         return packets
+
+    def is_empty(self) -> bool:
+        """Check if ring buffer has no unread packets."""
+        return self.available_read <= 0
+
+    def is_full(self) -> bool:
+        """Check if ring buffer is completely full."""
+        return self.available_write <= 0
+
+    def occupancy_ratio(self) -> float:
+        """Return the percentage capacity currently utilized (0.0 to 1.0)."""
+        return min(1.0, max(0.0, self.available_read / max(1, self.capacity)))
 
     def reset(self) -> None:
         """Reset sequence indices to zero."""

@@ -101,8 +101,8 @@ class LimitOrderBook:
             self._record_latency(start_ns)
             return executed_trades
 
-        # Side 1: Buy Order
-        if side == 1:  # SIDE_BUY
+        # Side 1: Buy Order (or 4: IOC Buy)
+        if side == 1 or side == 4:
             remaining_qty = qty
             
             # Cross against lowest asks
@@ -142,8 +142,8 @@ class LimitOrderBook:
                     del self.asks[best_ask]
                     self.ask_prices.pop(0)
 
-            # Rest remaining uncrossed volume on the bid book
-            if remaining_qty > 0:
+            # Rest remaining uncrossed volume on the bid book (unless IOC)
+            if remaining_qty > 0 and side != 4:  # Not SIDE_IOC_BUY
                 order = Order(
                     order_id=order_id,
                     side=1,
@@ -157,8 +157,8 @@ class LimitOrderBook:
                 self.bids[price].append(order)
                 self.orders[order_id] = (order, 1)
 
-        # Side 2: Sell Order
-        elif side == 2:  # SIDE_SELL
+        # Side 2: Sell Order (or 5: IOC Sell)
+        elif side == 2 or side == 5:  # SIDE_SELL
             remaining_qty = qty
 
             # Cross against highest bids
@@ -198,8 +198,8 @@ class LimitOrderBook:
                     del self.bids[best_bid]
                     self.bid_prices.pop()
 
-            # Rest remaining uncrossed volume on the ask book
-            if remaining_qty > 0:
+            # Rest remaining uncrossed volume on the ask book (unless IOC)
+            if remaining_qty > 0 and side != 5:  # Not SIDE_IOC_SELL
                 order = Order(
                     order_id=order_id,
                     side=2,
@@ -321,6 +321,41 @@ class LimitOrderBook:
             ask_depth.append((p, total_qty))
 
         return bid_depth, ask_depth
+
+    def get_vwap(self) -> Optional[float]:
+        """
+        Calculate Volume-Weighted Average Price (VWAP) across all executed trades.
+        
+        :return: VWAP in fixed-point cents (or dollars/units), or None if no trades executed.
+        """
+        if self.total_volume == 0 or not self.trades:
+            return None
+        total_dollar_volume = sum(t.price * t.qty for t in self.trades)
+        return total_dollar_volume / self.total_volume
+
+    def get_order_count(self) -> int:
+        """Return the total number of resting limit orders in the book."""
+        return len(self.orders)
+
+    def get_bid_volume(self) -> int:
+        """Calculate total resting buy quantity in the book."""
+        return sum(sum(o.qty for o in queue) for queue in self.bids.values())
+
+    def get_ask_volume(self) -> int:
+        """Calculate total resting sell quantity in the book."""
+        return sum(sum(o.qty for o in queue) for queue in self.asks.values())
+
+    def get_order_imbalance(self) -> float:
+        """
+        Calculate Order Book Imbalance ratio: (Bid Vol - Ask Vol) / (Bid Vol + Ask Vol).
+        Returns a value between -1.0 (purely ask heavy) and +1.0 (purely bid heavy).
+        """
+        bv = self.get_bid_volume()
+        av = self.get_ask_volume()
+        total = bv + av
+        if total == 0:
+            return 0.0
+        return (bv - av) / total
 
     def _record_latency(self, start_ns: int) -> None:
         """Record matching engine execution latency."""

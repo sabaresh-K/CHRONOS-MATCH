@@ -119,8 +119,8 @@ cdef class LimitOrderBook:
             self._record_latency(start_ns)
             return executed_trades
 
-        # Side 1: Buy Order
-        if side == 1:
+        # Side 1: Buy Order (or 4: IOC Buy)
+        if side == 1 or side == 4:
             while self.ask_prices and (<int32_t>self.ask_prices[0]) <= price and remaining_qty > 0:
                 best_ask = <int32_t>self.ask_prices[0]
                 level_orders = self.asks[best_ask]
@@ -155,7 +155,7 @@ cdef class LimitOrderBook:
                     del self.asks[best_ask]
                     self.ask_prices.pop(0)
 
-            if remaining_qty > 0:
+            if remaining_qty > 0 and side != 4:
                 order_dict = {
                     'order_id': order_id,
                     'side': 1,
@@ -170,8 +170,8 @@ cdef class LimitOrderBook:
                 self.bids[price].append(order_dict)
                 self.orders[order_id] = (order_dict, 1)
 
-        # Side 2: Sell Order
-        elif side == 2:
+        # Side 2: Sell Order (or 5: IOC Sell)
+        elif side == 2 or side == 5:
             while self.bid_prices and (<int32_t>self.bid_prices[len(self.bid_prices) - 1]) >= price and remaining_qty > 0:
                 best_bid = <int32_t>self.bid_prices[len(self.bid_prices) - 1]
                 level_orders = self.bids[best_bid]
@@ -206,7 +206,7 @@ cdef class LimitOrderBook:
                     del self.bids[best_bid]
                     self.bid_prices.pop()
 
-            if remaining_qty > 0:
+            if remaining_qty > 0 and side != 5:
                 order_dict = {
                     'order_id': order_id,
                     'side': 2,
@@ -363,6 +363,53 @@ cdef class LimitOrderBook:
             ask_depth.append((p, total_qty))
 
         return bid_depth, ask_depth
+
+    cpdef object get_vwap(self):
+        """
+        Calculate Volume-Weighted Average Price (VWAP) across all executed trades.
+        """
+        if self.total_volume == 0 or not self.trades:
+            return None
+        cdef double total_dollar_volume = 0.0
+        cdef dict t
+        for t in self.trades:
+            total_dollar_volume += (<double>(<int32_t>t['price'])) * (<double>(<uint32_t>t['qty']))
+        return total_dollar_volume / (<double>self.total_volume)
+
+    cpdef int get_order_count(self):
+        """Return total active limit orders."""
+        return len(self.orders)
+
+    cpdef uint64_t get_bid_volume(self):
+        """Calculate total resting buy quantity in the book."""
+        cdef uint64_t total = 0
+        cdef object queue
+        cdef dict o
+        for queue in self.bids.values():
+            for o in queue:
+                total += <uint32_t>o['qty']
+        return total
+
+    cpdef uint64_t get_ask_volume(self):
+        """Calculate total resting sell quantity in the book."""
+        cdef uint64_t total = 0
+        cdef object queue
+        cdef dict o
+        for queue in self.asks.values():
+            for o in queue:
+                total += <uint32_t>o['qty']
+        return total
+
+    cpdef double get_order_imbalance(self):
+        """
+        Calculate Order Book Imbalance ratio: (Bid Vol - Ask Vol) / (Bid Vol + Ask Vol).
+        """
+        cdef double bv = <double>self.get_bid_volume()
+        cdef double av = <double>self.get_ask_volume()
+        cdef double total = bv + av
+        if total == 0.0:
+            return 0.0
+        return (bv - av) / total
 
     cdef void _record_latency(self, uint64_t start_ns):
         cdef uint64_t latency_ns = time.perf_counter_ns() - start_ns

@@ -25,6 +25,8 @@ const statSpread = document.getElementById("statSpread");
 const statP50 = document.getElementById("statP50");
 const statThroughput = document.getElementById("statThroughput");
 const statVolume = document.getElementById("statVolume");
+const statVWAP = document.getElementById("statVWAP");
+const statImbalance = document.getElementById("statImbalance");
 
 // Stream Control
 const btnStreamToggle = document.getElementById("btnStreamToggle");
@@ -68,6 +70,7 @@ const btnSideBuy = document.getElementById("btnSideBuy");
 const btnSideSell = document.getElementById("btnSideSell");
 const btnTypeLimit = document.getElementById("btnTypeLimit");
 const btnTypeMarket = document.getElementById("btnTypeMarket");
+const btnTypeIOC = document.getElementById("btnTypeIOC");
 const priceGroup = document.getElementById("priceGroup");
 const orderPrice = document.getElementById("orderPrice");
 const orderQty = document.getElementById("orderQty");
@@ -160,6 +163,16 @@ function handleTelemetry(data) {
 
     if (data.total_volume !== undefined) {
         statVolume.textContent = `${data.total_volume.toLocaleString()} shs`;
+    }
+
+    if (data.vwap !== null && data.vwap !== undefined && statVWAP) {
+        statVWAP.textContent = `$${data.vwap.toFixed(2)}`;
+    }
+
+    if (data.order_imbalance !== undefined && statImbalance) {
+        const imb = data.order_imbalance;
+        statImbalance.textContent = (imb > 0 ? `+${imb.toFixed(2)}` : imb.toFixed(2));
+        statImbalance.style.color = imb > 0.05 ? "#10b981" : (imb < -0.05 ? "#f43f5e" : "#94a3b8");
     }
 
     if (data.orders_processed !== undefined) {
@@ -387,14 +400,14 @@ function setSide(side) {
 
 function setOrderType(type) {
     currentOrderType = type;
-    if (type === "LIMIT") {
-        btnTypeLimit.className = "type-btn active";
-        btnTypeMarket.className = "type-btn";
-        priceGroup.style.display = "flex";
-    } else {
-        btnTypeLimit.className = "type-btn";
-        btnTypeMarket.className = "type-btn active";
+    if (btnTypeLimit) btnTypeLimit.className = type === "LIMIT" ? "type-btn active" : "type-btn";
+    if (btnTypeMarket) btnTypeMarket.className = type === "MARKET" ? "type-btn active" : "type-btn";
+    if (btnTypeIOC) btnTypeIOC.className = type === "IOC" ? "type-btn active" : "type-btn";
+
+    if (type === "MARKET") {
         priceGroup.style.display = "none";
+    } else {
+        priceGroup.style.display = "flex";
     }
     updateEstimate();
 }
@@ -444,7 +457,7 @@ function updateEstimate() {
     orderEstValue.textContent = `$${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     const actionText = currentSide === "BUY" ? "BUY" : "SELL";
-    const typeText = currentOrderType === "LIMIT" ? "LIMIT" : "MARKET";
+    const typeText = currentOrderType;
     btnSubmitOrder.textContent = `PLACE ${actionText} ${typeText} ($${totalVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
 }
 

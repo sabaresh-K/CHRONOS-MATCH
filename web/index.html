@@ -36,6 +36,14 @@
                     <span class="pill-val cyan" id="statMid">$150.00</span>
                 </div>
                 <div class="stat-pill">
+                    <span class="pill-label">VWAP</span>
+                    <span class="pill-val" id="statVWAP" style="color: #38bdf8;">$150.00</span>
+                </div>
+                <div class="stat-pill">
+                    <span class="pill-label">IMBALANCE</span>
+                    <span class="pill-val" id="statImbalance">0.00</span>
+                </div>
+                <div class="stat-pill">
                     <span class="pill-label">SPREAD</span>
                     <span class="pill-val yellow" id="statSpread">$0.01 <span class="dim">(1 tick)</span></span>
                 </div>
@@ -244,13 +252,16 @@
                             </button>
                         </div>
 
-                        <!-- ORDER TYPE (LIMIT / MARKET) -->
+                        <!-- ORDER TYPE (LIMIT / MARKET / IOC) -->
                         <div class="type-selector-bar">
                             <button type="button" class="type-btn active" id="btnTypeLimit" onclick="setOrderType('LIMIT')">
-                                Limit Order
+                                Limit
                             </button>
                             <button type="button" class="type-btn" id="btnTypeMarket" onclick="setOrderType('MARKET')">
-                                Market Order
+                                Market
+                            </button>
+                            <button type="button" class="type-btn" id="btnTypeIOC" onclick="setOrderType('IOC')">
+                                IOC
                             </button>
                         </div>
 

@@ -21,6 +21,9 @@ from .ipc_bus import (
     SIDE_BUY,
     SIDE_SELL,
     SIDE_CANCEL,
+    SIDE_IOC_BUY,
+    SIDE_IOC_SELL,
+    SIDE_NAMES,
 )
 
 __all__ = [
@@ -33,5 +36,8 @@ __all__ = [
     "SIDE_BUY",
     "SIDE_SELL",
     "SIDE_CANCEL",
+    "SIDE_IOC_BUY",
+    "SIDE_IOC_SELL",
+    "SIDE_NAMES",
     "ENGINE_BACKEND",
 ]

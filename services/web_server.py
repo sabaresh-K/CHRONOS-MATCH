@@ -212,6 +212,9 @@ async def websocket_broadcast_worker():
             best_ask = state.lob.get_best_ask()
             spread = state.lob.get_spread()
             mid = state.lob.get_mid_price()
+            vwap = state.lob.get_vwap()
+            order_count = state.lob.get_order_count()
+            imbalance = state.lob.get_order_imbalance()
 
             latency_stats = state.lob.get_latency_stats()
             occupancy = state.ring_buffer.get_occupancy()
@@ -229,6 +232,9 @@ async def websocket_broadcast_worker():
                 "spread": (spread / 100.0) if spread is not None else None,
                 "spread_ticks": spread,
                 "mid_price": (mid / 100.0) if mid is not None else None,
+                "vwap": (vwap / 100.0) if vwap is not None else None,
+                "active_orders": order_count,
+                "order_imbalance": round(imbalance, 3),
                 "orders_processed": state.lob.orders_processed,
                 "trades_executed": state.lob.trades_executed,
                 "total_volume": state.lob.total_volume,
@@ -354,7 +360,11 @@ async def submit_order(order: OrderRequest):
         return await cancel_order_internal(order.order_id)
 
     is_buy = order.side.upper() == "BUY"
-    side_code = SIDE_BUY if is_buy else SIDE_SELL
+    is_ioc = order.order_type.upper() == "IOC"
+    if is_ioc:
+        side_code = 4 if is_buy else 5  # SIDE_IOC_BUY / SIDE_IOC_SELL
+    else:
+        side_code = SIDE_BUY if is_buy else SIDE_SELL
 
     best_bid = state.lob.get_best_bid()
     best_ask = state.lob.get_best_ask()
@@ -406,13 +416,23 @@ async def submit_order(order: OrderRequest):
         avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
         msg = f"Order #{oid} fully executed: {filled_shares:,} shares @ ${avg_price:.2f}"
     elif filled_shares > 0:
-        status = "PARTIALLY_FILLED"
-        avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
-        rem = order.qty - filled_shares
-        msg = f"Order #{oid} partially executed: {filled_shares:,} shares @ ${avg_price:.2f} ({rem:,} resting)"
+        if is_ioc:
+            status = "IOC_PARTIAL"
+            avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
+            rem = order.qty - filled_shares
+            msg = f"IOC Order #{oid} filled {filled_shares:,} @ ${avg_price:.2f}, remaining {rem:,} cancelled"
+        else:
+            status = "PARTIALLY_FILLED"
+            avg_price = sum(t["price"] * t["qty"] for t in executed_trades) / max(1, filled_shares)
+            rem = order.qty - filled_shares
+            msg = f"Order #{oid} partially executed: {filled_shares:,} shares @ ${avg_price:.2f} ({rem:,} resting)"
     else:
-        status = "RESTING"
-        msg = f"Order #{oid} resting in book at ${price_cents / 100.0:.2f} for {order.qty:,} shares"
+        if is_ioc:
+            status = "IOC_CANCELLED"
+            msg = f"IOC Order #{oid} cancelled (no liquidity at ${price_cents / 100.0:.2f})"
+        else:
+            status = "RESTING"
+            msg = f"Order #{oid} resting in book at ${price_cents / 100.0:.2f} for {order.qty:,} shares"
 
     record = {
         "order_id": oid,
@@ -503,6 +523,25 @@ async def configure_simulator(config: SimulatorConfigRequest):
     return {
         "active": state.sim_active,
         "rate": state.sim_rate,
+    }
+
+
+@app.get("/api/analytics")
+async def get_analytics():
+    """Return institutional order book analytics: VWAP, book imbalance, resting volume."""
+    best_bid = state.lob.get_best_bid()
+    best_ask = state.lob.get_best_ask()
+    return {
+        "vwap": ((state.lob.get_vwap() or 0) / 100.0),
+        "order_imbalance": round(state.lob.get_order_imbalance(), 4),
+        "resting_orders": state.lob.get_order_count(),
+        "resting_bid_volume": state.lob.get_bid_volume(),
+        "resting_ask_volume": state.lob.get_ask_volume(),
+        "best_bid": (best_bid / 100.0) if best_bid is not None else None,
+        "best_ask": (best_ask / 100.0) if best_ask is not None else None,
+        "spread_ticks": state.lob.get_spread(),
+        "total_trades": state.lob.trades_executed,
+        "total_volume": state.lob.total_volume,
     }
 
 
