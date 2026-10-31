@@ -192,8 +192,8 @@ cdef class OrderBook:
             self._cancel_order_nogil(order_id)
             return 0
 
-        # Side 1: Buy Order (crosses against Ask levels sorted ascending by price)
-        if side == 1:
+        # Side 1: Buy Order (or 4: IOC Buy)
+        if side == 1 or side == 4:
             while self.num_ask_levels > 0 and self.ask_levels[0].price <= price and remaining_qty > 0:
                 level = &self.ask_levels[0]
                 node_idx = level.head_idx
@@ -239,12 +239,12 @@ cdef class OrderBook:
                         self.ask_levels[i] = self.ask_levels[i + 1]
                     self.num_ask_levels -= 1
 
-            # Insert resting Buy into Bid book (FIFO tail of matching price level)
-            if remaining_qty > 0:
+            # Insert resting Buy into Bid book (FIFO tail of matching price level), unless IOC
+            if remaining_qty > 0 and side != 4:
                 self._insert_bid_nogil(order_id, price, remaining_qty, timestamp_ns)
 
-        # Side 2: Sell Order (crosses against Bid levels sorted descending by price)
-        elif side == 2:
+        # Side 2: Sell Order (or 5: IOC Sell)
+        elif side == 2 or side == 5:
             while self.num_bid_levels > 0 and self.bid_levels[0].price >= price and remaining_qty > 0:
                 level = &self.bid_levels[0]
                 node_idx = level.head_idx
@@ -288,8 +288,8 @@ cdef class OrderBook:
                         self.bid_levels[i] = self.bid_levels[i + 1]
                     self.num_bid_levels -= 1
 
-            # Insert resting Sell into Ask book (FIFO tail of matching price level)
-            if remaining_qty > 0:
+            # Insert resting Sell into Ask book (FIFO tail of matching price level), unless IOC
+            if remaining_qty > 0 and side != 5:
                 self._insert_ask_nogil(order_id, price, remaining_qty, timestamp_ns)
 
         return trade_count
@@ -598,6 +598,44 @@ cdef class OrderBook:
             ask_depth.append((self.ask_levels[i].price, self.ask_levels[i].total_qty))
 
         return bid_depth, ask_depth
+
+    cpdef object get_vwap(self):
+        """
+        Calculate Volume-Weighted Average Price (VWAP) in cents across executed trades.
+        """
+        if self.total_volume == 0 or not self.executed_trades_history:
+            return None
+        cdef double total_dollar_volume = 0.0
+        cdef dict t
+        for t in self.executed_trades_history:
+            total_dollar_volume += (<double>(<int32_t>t['price'])) * (<double>(<uint32_t>t['qty']))
+        return total_dollar_volume / (<double>self.total_volume)
+
+    cpdef int get_order_count(self):
+        """Return total active allocated orders."""
+        return self.allocated_count
+
+    cpdef uint64_t get_bid_volume(self):
+        cdef uint64_t total = 0
+        cdef int i
+        for i in range(self.num_bid_levels):
+            total += <uint64_t>self.bid_levels[i].total_qty
+        return total
+
+    cpdef uint64_t get_ask_volume(self):
+        cdef uint64_t total = 0
+        cdef int i
+        for i in range(self.num_ask_levels):
+            total += <uint64_t>self.ask_levels[i].total_qty
+        return total
+
+    cpdef double get_order_imbalance(self):
+        cdef double bv = <double>self.get_bid_volume()
+        cdef double av = <double>self.get_ask_volume()
+        cdef double total = bv + av
+        if total == 0.0:
+            return 0.0
+        return (bv - av) / total
 
     cdef void _record_latency(self, uint64_t start_ns, int count=1):
         cdef uint64_t latency_ns = time.perf_counter_ns() - start_ns
