@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/sqlite-ledger
+
   pull_request:
     branches:
       - main
@@ -28,5 +29,4 @@ jobs:
           pip install pytest cython
 
       - name: Run tests
-        run: |
-          python -m pytest tests/ -v
+        run: python -m pytest tests/ -v
