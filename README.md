@@ -36,7 +36,7 @@ flowchart LR
     SHM --> HEAD
     HEAD --> SLOTS
     SLOTS --> MATCH
-
+```
 ---
 
 ## 2. 32-Byte Binary Protocol Specification
