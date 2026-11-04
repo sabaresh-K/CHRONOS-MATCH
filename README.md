@@ -17,25 +17,25 @@ ChronosMatch solves these bottlenecks through a decoupled producer-consumer arch
 
 ```mermaid
 flowchart LR
-    subgraph Producer Process ["Producer: Market Simulator"]
-        MS[Order Firehose\n100k+ ord/sec] -->|Zero-Copy\npack_into| SHM_W[Shared Memory Ring Buffer\nchronos_ipc.shm]
+
+    subgraph Producer["Producer Process"]
+        MS["Market Simulator"]
     end
 
-    subgraph IPC Ring Buffer ["Zero-Copy IPC Data Plane"]
-        SHM_W --> HEAD[64-Byte Cache-Line Header\nMagic | Cap | W-Idx | R-Idx | Dropped]
-        HEAD --> SLOTS[Cyclic Slots: 32-Byte Binary Packets\nstruct: &lt;QB3xiIQ4x]
+    subgraph IPC["Zero-Copy IPC Data Plane"]
+        SHM["Shared Memory Ring Buffer"]
+        HEAD["64-Byte Cache-Line Header"]
+        SLOTS["Cyclic Slots: 32-Byte Binary Packets"]
     end
 
-    subgraph Consumer Process ["Consumer: Matching Engine"]
-        SLOTS -->|Zero-Copy\nunpack_from| LOB[Price-Time Priority LOB\nCython nogil / Python Fallback]
-        LOB --> EX[FIFO Matching Core\nBids & Asks Cross]
-        EX --> TR[Trade Fills Stream\nExecution Telemetry]
+    subgraph Consumer["Consumer Process"]
+        MATCH["Order Matching Engine"]
     end
 
-    subgraph Telemetry Process ["Live UI / Latency Monitor"]
-        LOB -.-> UI[Live Terminal UI\nDepth of Book & p50/p90/p99 Telemetry]
-    end
-```
+    MS --> SHM
+    SHM --> HEAD
+    HEAD --> SLOTS
+    SLOTS --> MATCH
 
 ---
 
