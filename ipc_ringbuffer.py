@@ -111,8 +111,13 @@ class IPCRingBuffer:
     def _attach_buffer(self) -> None:
         self._file_handle = open(self.filepath, "r+b")
         file_size = os.path.getsize(self.filepath)
+
         if file_size < HEADER_SIZE:
-            raise ValueError(f"IPC file '{self.filepath}' too small ({file_size} bytes)")
+            self._file_handle.close()
+            self._file_handle = None
+            raise ValueError(
+                f"IPC file '{self.filepath}' too small ({file_size} bytes)"
+            )
 
         self._mmap = mmap.mmap(
             self._file_handle.fileno(),
@@ -120,13 +125,38 @@ class IPCRingBuffer:
             access=mmap.ACCESS_WRITE,
         )
 
-        magic, cap, _, _, _ = HEADER_STRUCT.unpack_from(self._mmap, 0)
-        if magic != MAGIC_BYTES:
-            raise ValueError(f"Corrupt IPC file: invalid magic header {magic!r}")
+        try:
+            magic, cap, write_idx, read_idx, dropped = (
+                HEADER_STRUCT.unpack_from(self._mmap, 0)
+            )
 
-        self.capacity = cap
-        self.mask = cap - 1
-        self.total_size = HEADER_SIZE + (self.capacity * ORDER_SIZE)
+            if magic != MAGIC_BYTES:
+                raise ValueError("Invalid IPC magic header")
+
+            if cap <= 0 or (cap & (cap - 1)) != 0:
+                raise ValueError(f"Invalid ring capacity: {cap}")
+
+            expected_size = HEADER_SIZE + cap * ORDER_SIZE
+
+            if file_size != expected_size:
+                raise ValueError(
+                    f"IPC file size mismatch: expected {expected_size}, "
+                    f"got {file_size}"
+                )
+
+            if write_idx < read_idx or write_idx - read_idx > cap:
+                raise ValueError("Invalid IPC sequence indexes")
+
+            self.capacity = cap
+            self.mask = cap - 1
+            self.total_size = expected_size
+
+        except Exception:
+            self._mmap.close()
+            self._mmap = None
+            self._file_handle.close()
+            self._file_handle = None
+            raise
 
     # Fast header sequence properties
     @property
