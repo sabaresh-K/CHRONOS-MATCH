@@ -27,6 +27,7 @@ from core import (
     SIDE_SELL,
     SIDE_CANCEL,
 )
+from services.ledger_daemon import LedgerDaemon
 
 
 class OrderRequest(BaseModel):
@@ -70,6 +71,9 @@ class AppState:
         # Trade tracking
         self.recent_trades: List[Dict] = []
         self.max_recent_trades: int = 60
+
+        # Background async audit ledger
+        self.ledger_daemon: LedgerDaemon = LedgerDaemon(db_path="chronos_trades.db", batch_size=200, flush_interval_s=0.05)
 
         # User manual order history
         self.user_orders: List[Dict] = []
@@ -157,6 +161,19 @@ class AppState:
                 "timestamp_ns": tr.timestamp_ns if hasattr(tr, "timestamp_ns") else tr.get("timestamp_ns", 0),
             }
             self.recent_trades.insert(0, trade_dict)
+            raw_trade = {
+                "trade_id": trade_dict["trade_id"],
+                "maker_order_id": trade_dict["maker_order_id"],
+                "taker_order_id": trade_dict["taker_order_id"],
+                "price": int(trade_dict["price"] * 100),
+                "qty": trade_dict["qty"],
+                "timestamp_ns": trade_dict["timestamp_ns"],
+            }
+            try:
+                self.ledger_daemon.queue.put_nowait(raw_trade)
+            except Exception:
+                pass
+
         if len(self.recent_trades) > self.max_recent_trades:
             self.recent_trades = self.recent_trades[:self.max_recent_trades]
 
@@ -277,10 +294,13 @@ async def lifespan(app: FastAPI):
     t1 = asyncio.create_task(simulator_worker())
     t2 = asyncio.create_task(metrics_calculator_worker())
     t3 = asyncio.create_task(websocket_broadcast_worker())
+    t4 = asyncio.create_task(state.ledger_daemon.run())
     yield
+    state.ledger_daemon.stop()
     t1.cancel()
     t2.cancel()
     t3.cancel()
+    await t4
     state.ring_buffer.close()
 
 
@@ -523,6 +543,19 @@ async def configure_simulator(config: SimulatorConfigRequest):
     return {
         "active": state.sim_active,
         "rate": state.sim_rate,
+    }
+
+
+@app.get("/api/ledger/summary")
+async def get_ledger_summary():
+    """Retrieve audit statistics and persisted trade counts from the ledger database."""
+    summary = state.ledger_daemon.ledger.get_summary()
+    return {
+        "trades_persisted": state.ledger_daemon.trades_persisted,
+        "batches_flushed": state.ledger_daemon.batches_flushed,
+        "db_total_trades": summary["total_trades"],
+        "db_total_shares": summary["total_shares"],
+        "db_total_notional_dollars": summary["total_notional"],
     }
 
 

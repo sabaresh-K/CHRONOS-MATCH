@@ -18,6 +18,9 @@ dist/
 # Shared memory and temporary files
 *.shm
 *.log
+*.db
+*.db-wal
+*.db-shm
 
 # Pytest & IDE
 .pytest_cache/
