@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "Cython>=3.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chronosmatch"
+version = "1.0.0"
+description = "Zero-Copy High-Frequency Trading & Low-Latency Matching Engine"
+authors = [{name = "ChronosMatch Systems Engineering"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.0.0",
+    "websockets>=12.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chronos*", "core*", "services*", "sim*", "ui*", "ledger*", "bench*"]
